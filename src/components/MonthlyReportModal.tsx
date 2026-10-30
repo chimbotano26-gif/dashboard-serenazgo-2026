@@ -1,777 +1,611 @@
-import React, { useState, useMemo, useRef, Component, ErrorInfo } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   X,
-  FileSpreadsheet,
-  FileText,
+  Download,
   Printer,
-  Calendar,
+  FileText,
   AlertTriangle,
+  Loader2,
 } from 'lucide-react';
 import { IncidentRecord, MesType } from '../types';
+import { SerenazgoLogo } from './SerenazgoLogo';
 import {
   getMonthlyReportData,
-  exportMonthlyReportExcel,
+  exportMonthlyReport2PagesPDF,
 } from '../utils/reportGenerator';
 
-// =========================================================================
-// 1. ERROR BOUNDARY PARA PREVENCIÓN DE PANTALLA NEGRA / CRASH EN REACT
-// =========================================================================
-interface ErrorBoundaryProps {
-  children: React.ReactNode;
-  onClose?: () => void;
-  onReset?: () => void;
-}
-
-interface ErrorBoundaryState {
-  hasError: boolean;
-  error?: Error;
-}
-
-export class MonthlyReportErrorBoundary extends Component<
-  ErrorBoundaryProps,
-  ErrorBoundaryState
-> {
-  constructor(props: ErrorBoundaryProps) {
-    super(props);
-    this.state = { hasError: false };
-  }
-
-  static getDerivedStateFromError(error: Error): ErrorBoundaryState {
-    return { hasError: true, error };
-  }
-
-  componentDidCatch(error: Error, errorInfo: ErrorInfo) {
-    console.error('Error interceptado en Ficha Oficial de Incidencias:', error, errorInfo);
-  }
-
-  render() {
-    if (this.state.hasError) {
-      return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-sm animate-fadeIn">
-          <div className="bg-white rounded-2xl shadow-2xl border-2 border-red-500 max-w-lg w-full p-6 text-slate-800">
-            <div className="flex items-center gap-3 text-red-600 mb-4">
-              <div className="w-11 h-11 rounded-xl bg-red-100 flex items-center justify-center shrink-0">
-                <AlertTriangle className="w-6 h-6 text-red-600" />
-              </div>
-              <div>
-                <h3 className="text-base font-black uppercase text-slate-900 tracking-wide">
-                  Recuperación de Ficha Oficial
-                </h3>
-                <p className="text-xs text-slate-500">
-                  Se evitó el cierre inesperado al cambiar de mes.
-                </p>
-              </div>
-            </div>
-
-            <p className="text-xs text-slate-600 mb-4 bg-slate-50 p-3 rounded-lg border border-slate-200">
-              La Ficha ha sido estabilizada para prevenir fallos en la interfaz. Puede restablecer la vista con el mes de Setiembre 2026 o cerrar esta ventana.
-            </p>
-
-            <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-slate-200">
-              <button
-                type="button"
-                onClick={() => {
-                  this.setState({ hasError: false });
-                  this.props.onReset?.();
-                }}
-                className="px-4 py-2 bg-blue-700 hover:bg-blue-600 text-white rounded-lg text-xs font-black shadow transition-all"
-              >
-                Restablecer a Setiembre 2026
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  this.setState({ hasError: false });
-                  this.props.onClose?.();
-                }}
-                className="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-lg text-xs font-bold transition-all"
-              >
-                Cerrar
-              </button>
-            </div>
-          </div>
-        </div>
-      );
-    }
-    return this.props.children;
-  }
-}
-
-// =========================================================================
-// 2. INTERFAZ Y CONSTANTES
-// =========================================================================
 export interface MonthlyReportModalProps {
   isOpen: boolean;
   onClose: () => void;
   records?: IncidentRecord[];
   allRecords?: IncidentRecord[];
-  filteredRecords?: IncidentRecord[];
-  initialMes?: MesType | string;
   selectedMonth?: MesType | string;
+  initialMes?: MesType | string;
 }
 
-const MESES_DIAS_2026: Record<string, number> = {
-  ENERO: 31,
-  FEBRERO: 28,
-  MARZO: 31,
-  ABRIL: 30,
-  MAYO: 31,
-  JUNIO: 30,
-  JULIO: 31,
-  AGOSTO: 31,
-  SETIEMBRE: 30,
-  OCTUBRE: 31,
-  NOVIEMBRE: 30,
-  DICIEMBRE: 31,
-};
-
-// Lista de meses oficiales con datos activos del periodo 2026 (Total 20,635 atenciones)
-const ALL_ACTIVE_MONTHS: MesType[] = [
-  'ENERO',
-  'FEBRERO',
-  'MARZO',
-  'ABRIL',
-  'MAYO',
-  'JUNIO',
-  'JULIO',
-  'AGOSTO',
-  'SETIEMBRE',
-  'OCTUBRE',
-];
-
-// =========================================================================
-// 3. COMPONENTE INTERNO DE LA FICHA CON VALIDACIONES DEFENSIVAS
-// =========================================================================
-const MonthlyReportModalContent: React.FC<MonthlyReportModalProps> = ({
+export const MonthlyReportModal: React.FC<MonthlyReportModalProps> = ({
   isOpen,
   onClose,
   records = [],
   allRecords = [],
-  filteredRecords = [],
-  initialMes = 'SETIEMBRE',
   selectedMonth,
+  initialMes,
 }) => {
-  // Normalizar mes inicial de manera segura
-  const rawInitial = (selectedMonth || initialMes || 'SETIEMBRE').toString().trim().toUpperCase();
-  const safeInitial = ALL_ACTIVE_MONTHS.includes(rawInitial as MesType)
-    ? (rawInitial as MesType)
-    : 'SETIEMBRE';
-
-  const [selectedMes, setSelectedMes] = useState<MesType>(safeInitial);
-  const sheetRef = useRef<HTMLDivElement>(null);
-
-  // Sincronizar mes cuando cambien las props
-  React.useEffect(() => {
-    const raw = (selectedMonth || initialMes || '').toString().trim().toUpperCase();
-    if (raw && ALL_ACTIVE_MONTHS.includes(raw as MesType)) {
-      setSelectedMes(raw as MesType);
-    }
-  }, [initialMes, selectedMonth]);
-
-  // Selección de conjunto de datos seguro
-  const safeRecords = Array.isArray(records) ? records : [];
-  const safeAllRecords = Array.isArray(allRecords) ? allRecords : [];
-  const safeFilteredRecords = Array.isArray(filteredRecords) ? filteredRecords : safeRecords;
+  const safeMes = (selectedMonth || initialMes || 'SETIEMBRE').toString().trim().toUpperCase() as MesType;
+  const [isExporting, setIsExporting] = useState(false);
 
   const baseRecords = useMemo(() => {
-    if (safeAllRecords.length > 0) return safeAllRecords;
-    if (safeFilteredRecords.length > 0) return safeFilteredRecords;
-    return safeRecords;
-  }, [safeAllRecords, safeFilteredRecords, safeRecords]);
+    if (Array.isArray(allRecords) && allRecords.length > 0) return allRecords;
+    if (Array.isArray(records) && records.length > 0) return records;
+    return [];
+  }, [allRecords, records]);
 
-  // Conteo oficial de atenciones por mes con fallbacks robustos
-  const monthCounts = useMemo(() => {
-    const counts: Record<string, number> = {
-      ENERO: 850,
-      FEBRERO: 3136,
-      MARZO: 2957,
-      ABRIL: 2438,
-      MAYO: 2075,
-      JUNIO: 1787,
-      JULIO: 1941,
-      AGOSTO: 2769,
-      SETIEMBRE: 2292,
-      OCTUBRE: 390,
-    };
-
-    if (baseRecords.length > 0) {
-      baseRecords.forEach((r) => {
-        if (r && r.mes) {
-          const m = r.mes.toString().trim().toUpperCase();
-          if (m) {
-            counts[m] = (counts[m] || 0) + 1;
-          }
-        }
-      });
-    }
-    return counts;
-  }, [baseRecords]);
-
-  // Generación defensiva de los datos del reporte mensual
+  // Generación de los datos del reporte mensual
   const reportData = useMemo(() => {
     try {
-      return getMonthlyReportData(baseRecords, safeAllRecords, selectedMes);
+      return getMonthlyReportData(baseRecords, baseRecords, safeMes);
     } catch (e) {
-      console.warn('Error calculando datos del reporte mensual:', e);
+      console.warn('Error calculando reporte mensual:', e);
       return {
-        mes: selectedMes,
-        rangoFechas: `Mes de ${selectedMes} 2026`,
+        mes: safeMes,
+        rangoFechas: `Mes de ${safeMes} 2026`,
         rows: [],
         totalMes: 0,
         porcentajeAnual: '0.00',
       };
     }
-  }, [baseRecords, safeAllRecords, selectedMes]);
+  }, [baseRecords, safeMes]);
 
   if (!isOpen) return null;
 
-  // Formato de periodo oficial: "Desde el 01 de [Mes] del 2026 Hasta el [Fin] de [Mes] 2026"
-  const safeMesName = selectedMes || 'SETIEMBRE';
-  const mesCapitalizado =
-    safeMesName.charAt(0) + safeMesName.slice(1).toLowerCase();
-  const finDeMes = MESES_DIAS_2026[safeMesName] || 30;
-  const subtituloPeriodo = `Desde el 01 de ${mesCapitalizado} del 2026 Hasta el ${finDeMes} de ${mesCapitalizado} 2026`;
-
-  // Filas del reporte y verificación de estado vacío
+  // Renderizar las atenciones completas sin ningún .slice() en la Hoja 1
   const displayRows = Array.isArray(reportData?.rows) ? reportData.rows : [];
-  const chartRows = displayRows;
-  const totalRowsCount = displayRows.length;
+  const chartRows = displayRows.slice(0, 14); // 14 barras principales para el gráfico de la Hoja 2
   const totalMesCasos = reportData?.totalMes || 0;
-  const hasData = totalRowsCount > 0 && totalMesCasos > 0;
 
-  // Cálculo seguro de escala X para el gráfico de barras horizontales
-  const maxChartVal = hasData ? (chartRows[0]?.total || 10) : 10;
+  // Escala para el gráfico cilíndrico de la Hoja 2
+  const maxChartVal = chartRows[0]?.total || 10;
   const xAxisMax = Math.ceil((maxChartVal * 1.15) / 50) * 50 || 100;
-  const xGridTicks = 6;
-  const xGridValues: number[] = [];
-  for (let i = 0; i <= xGridTicks; i++) {
-    xGridValues.push(Math.round((xAxisMax / xGridTicks) * i));
-  }
+  const xGridTicks = [0, 0.25, 0.5, 0.75, 1].map((pct) => Math.round(xAxisMax * pct));
 
-  // Geometría del gráfico de barras horizontales en SVG
-  const svgWidth = 860;
-  const svgHeight = 640;
-  const chartMarginLeft = 245;
-  const chartMarginRight = 55;
-  const chartMarginTop = 22;
-  const chartMarginBottom = 28;
+  // KPIs resumen para la Hoja 2
+  const top1Name = chartRows[0]?.incidencia || 'N/A';
+  const top1Short = top1Name.length > 24 ? top1Name.slice(0, 23) + '…' : top1Name;
+  const top1Count = chartRows[0]?.total || 0;
 
-  const plotAreaWidth = svgWidth - chartMarginLeft - chartMarginRight;
-  const plotAreaHeight = svgHeight - chartMarginTop - chartMarginBottom;
+  const vfItem = displayRows.find((r) => r.incidencia.includes('VIOLENCIA FAMILIAR'));
+  const vfCount = vfItem?.total || 0;
 
-  const rowHeight = plotAreaHeight / Math.max(1, totalRowsCount);
-  const barHeight = Math.max(7, Math.min(13.5, rowHeight * 0.72));
+  // =========================================================================
+  // CONTROLADOR DEL BOTÓN "Descargar PDF":
+  // Ejecuta la descarga directa del archivo PDF oficial de 2 hojas sin bloquearse
+  // =========================================================================
+  const handleDownloadPDF = async () => {
+    if (isExporting) return;
+    setIsExporting(true);
 
-  // Exportar Excel oficial
-  const handleExportExcel = () => {
     try {
-      exportMonthlyReportExcel(reportData);
-    } catch (e) {
-      console.error('Error exportando Excel:', e);
+      // 1. Descarga directa con jsPDF (genera el archivo .pdf descargable)
+      await new Promise<void>((resolve, reject) => {
+        try {
+          exportMonthlyReport2PagesPDF(reportData);
+          resolve();
+        } catch (pdfErr) {
+          reject(pdfErr);
+        }
+      });
+    } catch (err) {
+      console.warn('Fallo en jsPDF, intentando impresión nativa de respaldo:', err);
+      try {
+        window.print();
+      } catch (printErr) {
+        console.error('Error en impresión de respaldo:', printErr);
+        alert('No se pudo generar el PDF automáticamente. Presione Ctrl+P para imprimir.');
+      }
+    } finally {
+      setTimeout(() => setIsExporting(false), 800);
     }
   };
 
-  // =========================================================================
-  // BOTÓN DE EXPORTACIÓN A PDF SEGURO Y LIMPIO (LLAMADA NATIVA WINDOW.PRINT)
-  // Sin html2canvas, sin manipulación de DOM ni conversión que bloquee la UI
-  // =========================================================================
-  const handleExportPDF = () => {
+  // Impresión nativa complementaria con @media print
+  const handleNativePrint = () => {
     try {
       window.print();
     } catch (err) {
-      console.error('Error al invocar impresión oficial en navegador:', err);
+      console.warn('Fallo en window.print():', err);
+      handleDownloadPDF();
     }
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-1 sm:p-3 bg-slate-950/85 backdrop-blur-sm animate-fadeIn">
-      <div className="bg-slate-100 text-slate-800 w-full max-w-[1460px] max-h-[98vh] rounded-2xl border-2 border-blue-900 shadow-2xl flex flex-col overflow-hidden">
-        {/* ========================================================================= */}
-        {/* BARRA SUPERIOR DE ACCIONES Y CONTROLES                                    */}
-        {/* ========================================================================= */}
-        <div className="px-4 py-2 bg-gradient-to-r from-[#07172e] via-[#0b2447] to-[#124270] text-white flex flex-wrap items-center justify-between gap-3 border-b-2 border-cyan-500/80 shrink-0">
-          <div className="flex items-center gap-2.5">
-            <div className="p-1.5 bg-cyan-500/20 rounded-lg border border-cyan-400/40">
-              <FileText className="w-5 h-5 text-cyan-300" />
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <h2 className="text-xs sm:text-sm font-black tracking-wide uppercase">
-                  FICHA OFICIAL DE INCIDENCIAS &bull; {selectedMes} 2026
-                </h2>
-                <span className="text-[10px] bg-cyan-400 text-slate-950 px-2 py-0.5 rounded-full font-black uppercase tracking-wider">
-                  TODAS LAS ATENCIONES ({totalMesCasos.toLocaleString()}) &bull; BARRAS HORIZONTALES
-                </span>
-              </div>
-              <p className="text-[10.5px] text-cyan-200/90 font-medium">
-                Municipalidad Distrital de Nuevo Chimbote &bull; Subgerencia de Seguridad Ciudadana
-              </p>
-            </div>
+    <div className="fixed inset-0 z-50 flex flex-col bg-slate-950/85 backdrop-blur-md overflow-hidden print:p-0 print:bg-white print:static print:inset-auto font-sans">
+      {/* Estilos dedicados de impresión A4 Horizontal (2 Hojas independientes) */}
+      <style>{`
+        @media print {
+          @page {
+            size: A4 landscape;
+            margin: 5mm;
+          }
+          html, body {
+            background: #ffffff !important;
+            color: #0f172a !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
+          }
+          .print\\:hidden {
+            display: none !important;
+          }
+          .print-landscape-page {
+            width: 100% !important;
+            max-width: 100% !important;
+            min-height: 100vh !important;
+            height: 100vh !important;
+            margin: 0 !important;
+            padding: 4mm 6mm !important;
+            border: none !important;
+            box-shadow: none !important;
+            background: #ffffff !important;
+            page-break-inside: avoid !important;
+            break-inside: avoid !important;
+            box-sizing: border-box !important;
+          }
+          .print-page-1 {
+            page-break-after: always !important;
+            break-after: page !important;
+          }
+          .print-page-2 {
+            page-break-before: always !important;
+            break-before: page !important;
+          }
+        }
+      `}</style>
+
+      {/* ===================================================================== */}
+      {/* BARRA SUPERIOR DE ACCIONES Y CONTROLES                                */}
+      {/* ===================================================================== */}
+      <div className="px-5 py-2.5 bg-gradient-to-r from-[#07172e] via-[#0b2447] to-[#124270] text-white flex items-center justify-between gap-4 border-b-2 border-cyan-500/80 shrink-0 print:hidden shadow-md">
+        {/* Lado izquierdo: Información de la previsualización */}
+        <div className="flex items-center gap-3">
+          <div className="p-1.5 bg-cyan-500/20 rounded-xl border border-cyan-400/40">
+            <FileText className="w-5 h-5 text-cyan-300" />
           </div>
-
-          <div className="flex items-center gap-2 flex-wrap">
-            <button
-              id="btn-modal-export-excel"
-              onClick={handleExportExcel}
-              className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs flex items-center gap-1.5 shadow-md transition-all hover:scale-[1.02] active:scale-95 cursor-pointer"
-              title="Descargar Ficha en Excel (.xlsx) con la totalidad de incidencias y gráfico"
-            >
-              <FileSpreadsheet className="w-4 h-4" />
-              <span>Exportar Excel (.xlsx)</span>
-            </button>
-
-            {/* BOTÓN EXPORTAR PDF SEGURO: Utiliza impresión nativa A4 Horizontal con todos los logos y marca de agua */}
-            <button
-              id="btn-modal-export-pdf"
-              onClick={handleExportPDF}
-              className="px-3.5 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white font-black text-xs flex items-center gap-1.5 shadow-md transition-all hover:scale-[1.02] active:scale-95 cursor-pointer"
-              title="Guardar como PDF horizontal (Landscape A4) con el logo oficial, insignia y marca de agua nítidos"
-            >
-              <FileText className="w-4 h-4" />
-              <span>Exportar PDF</span>
-            </button>
-
-            <button
-              onClick={() => window.print()}
-              className="px-2.5 py-1.5 rounded-lg bg-blue-700 hover:bg-blue-600 text-white font-bold text-xs flex items-center gap-1.5 shadow transition-colors cursor-pointer"
-              title="Imprimir Ficha Horizontal"
-            >
-              <Printer className="w-4 h-4" />
-              <span className="hidden sm:inline">Imprimir</span>
-            </button>
-
-            <button
-              onClick={onClose}
-              className="p-1.5 text-slate-300 hover:text-white rounded-lg hover:bg-white/10 transition-colors ml-1 cursor-pointer"
-              title="Cerrar modal"
-            >
-              <X className="w-5 h-5" />
-            </button>
+          <div>
+            <div className="flex items-center gap-2">
+              <h2 className="text-xs sm:text-sm font-black tracking-wide uppercase text-white font-sans">
+                PREVISUALIZACIÓN DE REPORTE MENSUAL &bull; {safeMes} 2026
+              </h2>
+              <span className="text-[10px] bg-cyan-400 text-slate-950 px-2 py-0.5 rounded-md font-black uppercase tracking-wider">
+                {displayRows.length} ATENCIONES &bull; 2 HOJAS
+              </span>
+            </div>
+            <p className="text-[10.5px] text-cyan-200/90 font-medium">
+              Municipalidad Distrital de Nuevo Chimbote &bull; Subgerencia de Seguridad Ciudadana
+            </p>
           </div>
         </div>
 
-        {/* ========================================================================= */}
-        {/* SELECTOR DE MESES RÁPIDO CON DATOS VINCULADOS (ENE A OCT)                */}
-        {/* ========================================================================= */}
-        <div className="bg-white border-b border-slate-300 px-4 py-1.5 flex items-center gap-2 overflow-x-auto scrollbar-none shrink-0 shadow-xs">
-          <span className="text-[11px] font-black text-slate-700 uppercase shrink-0 flex items-center gap-1">
-            <Calendar className="w-3.5 h-3.5 text-blue-700" />
-            <span>Mes:</span>
-          </span>
-          <div className="flex items-center gap-1.5">
-            {ALL_ACTIVE_MONTHS.map((m) => {
-              const isSelected = selectedMes === m;
-              const short = m === 'SETIEMBRE' ? 'SET' : m === 'OCTUBRE' ? 'OCT' : m.slice(0, 3);
-              const count = monthCounts[m] || 0;
-              return (
-                <button
-                  key={m}
-                  id={`modal-month-btn-${short.toLowerCase()}`}
-                  onClick={() => setSelectedMes(m)}
-                  className={`px-2.5 py-1 rounded text-[11px] font-bold uppercase transition-all whitespace-nowrap border flex items-center gap-1.5 cursor-pointer ${
-                    isSelected
-                      ? 'bg-blue-800 text-white border-blue-900 shadow-md font-black ring-2 ring-cyan-400 scale-[1.02]'
-                      : 'bg-slate-50 text-slate-700 border-slate-300 hover:bg-blue-50 hover:text-blue-900'
-                  }`}
-                  title={`Ver Ficha Oficial de ${m} (2026: ${count.toLocaleString()} atenciones)`}
-                >
-                  <span>{short}</span>
-                  <span
-                    className={`text-[9.5px] px-1.5 py-0.2 rounded-full font-mono font-bold ${
-                      isSelected ? 'bg-white text-blue-900' : 'bg-slate-200 text-slate-700'
-                    }`}
-                  >
-                    {count.toLocaleString()}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-          <span className="ml-auto text-[11px] text-slate-500 font-medium hidden sm:inline">
-            Total atenciones en {selectedMes}:{' '}
-            <strong className="text-blue-900 font-mono font-bold">
-              {totalMesCasos.toLocaleString()}
-            </strong>
-          </span>
-        </div>
-
-        {/* ========================================================================= */}
-        {/* CONTENEDOR DE LA FICHA EN FORMATO HORIZONTAL 2 COLUMNAS (1 SOLA HOJA A4)  */}
-        {/* ========================================================================= */}
-        <div className="p-2 sm:p-3 overflow-auto flex-1 flex justify-center items-start bg-slate-200/70">
-          <div
-            id="report-container"
-            ref={sheetRef}
-            className="modal-ficha relative bg-white text-slate-900 rounded-lg shadow-xl border border-slate-300 p-3 flex flex-col justify-between overflow-hidden"
-            style={{
-              width: '1240px',
-              minWidth: '1240px',
-              height: '800px',
-              minHeight: '800px',
-              maxHeight: '800px',
-              boxSizing: 'border-box',
-            }}
+        {/* Lado derecho: Botones de Acción */}
+        <div className="flex items-center gap-2">
+          {/* Botón: Imprimir Ficha */}
+          <button
+            type="button"
+            onClick={handleNativePrint}
+            className="px-3 py-1.5 rounded-xl bg-blue-800/80 hover:bg-blue-700 text-white font-bold text-xs flex items-center gap-1.5 transition-all cursor-pointer border border-blue-600 shadow-sm active:scale-95"
+            title="Abrir vista de impresión nativa"
           >
-            {/* --------------------------------------------------------------------- */}
-            {/* 3. MARCA DE AGUA GENERAL: INSIGNIA CIRCULAR SERENAZGO EN EL FONDO     */}
-            {/* --------------------------------------------------------------------- */}
-            <div
-              className="absolute inset-0 flex items-center justify-center pointer-events-none select-none z-0 overflow-hidden"
-              style={{ opacity: 0.17 }}
-            >
-              <img
-                src="/Logo - Serenazgo 2025.png"
-                alt="Insignia Serenazgo Nuevo Chimbote - Marca de agua"
-                className="w-[520px] h-[520px] object-contain select-none"
-                loading="eager"
-              />
-            </div>
+            <Printer className="w-4 h-4 text-cyan-300" />
+            <span className="hidden sm:inline">Imprimir</span>
+          </button>
 
-            {/* --------------------------------------------------------------------- */}
-            {/* 1. ENCABEZADO SUPERIOR: BARRA AZUL OSCURA SUPERIOR                    */}
-            {/* --------------------------------------------------------------------- */}
-            <div className="relative z-10 w-full bg-[#0B2447] text-white rounded-md px-3.5 py-2 flex items-center justify-between border-b-2 border-cyan-400 shadow-sm shrink-0">
-              {/* A LA IZQUIERDA: Logo institucional mostrando el escudo y lema "Bienestar para TODOS" */}
-              <div className="flex items-center gap-2 min-w-[220px] shrink-0">
-                <div className="bg-white rounded-md px-2.5 py-1 flex items-center shadow-xs border border-white/40">
-                  <img
-                    src="/LOGO final.png"
-                    alt="Municipalidad Distrital de Nuevo Chimbote - Bienestar para TODOS"
-                    className="h-10 sm:h-12 w-auto object-contain max-w-[220px]"
-                    style={{ objectFit: 'contain' }}
-                    loading="eager"
-                  />
-                </div>
-              </div>
+          {/* Botón Principal: Descargar PDF Oficial */}
+          <button
+            type="button"
+            id="btn-download-monthly-report-pdf"
+            onClick={handleDownloadPDF}
+            disabled={isExporting}
+            className="px-4 py-1.5 rounded-xl bg-gradient-to-r from-rose-600 via-rose-500 to-amber-500 hover:from-rose-500 hover:to-amber-400 disabled:opacity-75 text-white font-black text-xs flex items-center gap-2 shadow-lg transition-all hover:scale-[1.02] active:scale-95 cursor-pointer border border-amber-300/60"
+            title="Descargar el reporte mensual oficial en formato PDF de 2 hojas"
+          >
+            {isExporting ? (
+              <>
+                <Loader2 className="w-4 h-4 text-white animate-spin" />
+                <span>Generando PDF...</span>
+              </>
+            ) : (
+              <>
+                <Download className="w-4 h-4 text-white" />
+                <span>Descargar PDF</span>
+              </>
+            )}
+          </button>
 
-              {/* AL CENTRO: Dos líneas de texto en color blanco */}
-              <div className="flex-1 text-center px-2">
-                <h1 className="text-[11.5px] font-black text-white uppercase tracking-wider leading-tight font-sans">
-                  MUNICIPALIDAD DISTRITAL DE NUEVO CHIMBOTE - SUBGERENCIA DE SEGURIDAD CIUDADANA
-                </h1>
-                <p className="text-[10px] font-extrabold text-cyan-200 uppercase tracking-wide mt-0.5 font-sans">
-                  FICHA OFICIAL DE INCIDENCIAS &bull; {selectedMes} 2026 &bull; TODAS LAS ATENCIONES ({totalMesCasos.toLocaleString()})
-                </p>
-              </div>
-
-              {/* A LA DERECHA: Insignia circular de Serenazgo Nuevo Chimbote */}
-              <div className="flex items-center justify-end min-w-[220px]">
-                <div className="flex items-center gap-2">
-                  <div className="text-right hidden sm:block">
-                    <p className="text-[8.5px] font-black text-cyan-300 uppercase tracking-tight leading-none">
-                      SERENAZGO
-                    </p>
-                    <p className="text-[7.5px] font-bold text-slate-300 uppercase tracking-tight mt-0.5 leading-none">
-                      NUEVO CHIMBOTE
-                    </p>
-                  </div>
-                  <img
-                    src="/Logo - Serenazgo 2025.png"
-                    alt="Insignia Serenazgo Nuevo Chimbote"
-                    className="h-10 w-10 object-contain shrink-0 rounded-full bg-white/10 p-0.5 shadow-sm"
-                    loading="eager"
-                  />
-                </div>
-              </div>
-            </div>
-
-            {/* --------------------------------------------------------------------- */}
-            {/* 2. CUERPO PRINCIPAL (2 COLUMNAS SOBRE FONDO BLANCO)                   */}
-            {/* --------------------------------------------------------------------- */}
-            <div className="relative z-10 flex flex-row gap-4 flex-1 min-h-0 pt-2 px-1 pb-1">
-              {/* =================================================================== */}
-              {/* COLUMNA IZQUIERDA (36%): TABLA COMPLETA CON TODAS LAS ATENCIONES    */}
-              {/* =================================================================== */}
-              <div className="w-[36%] flex flex-col justify-between shrink-0 h-full">
-                {!hasData ? (
-                  /* Estado vacío elegante si no hay atenciones para el mes */
-                  <div className="flex-1 flex flex-col items-center justify-center p-6 text-center bg-slate-50 border border-slate-200 rounded-lg">
-                    <div className="w-12 h-12 rounded-full bg-blue-100 flex items-center justify-center text-blue-700 mb-2.5">
-                      <Calendar className="w-6 h-6" />
-                    </div>
-                    <h3 className="text-xs font-black text-slate-800 uppercase tracking-wide">
-                      Sin Atenciones en {selectedMes} 2026
-                    </h3>
-                    <p className="text-[11px] text-slate-500 mt-1 max-w-[220px]">
-                      No se registran incidencias en la base de datos para este mes con los filtros activos.
-                    </p>
-                    <div className="mt-3 flex flex-wrap gap-1.5 justify-center">
-                      <span className="text-[9.5px] text-slate-400 font-bold uppercase w-full">
-                        Meses con datos registrados:
-                      </span>
-                      {['SETIEMBRE', 'FEBRERO', 'MARZO', 'AGOSTO'].map((m) => (
-                        <button
-                          key={m}
-                          onClick={() => setSelectedMes(m as MesType)}
-                          className="px-2 py-0.5 text-[9.5px] font-bold bg-blue-800 hover:bg-blue-700 text-white rounded uppercase shadow-xs cursor-pointer"
-                        >
-                          {m}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                ) : (
-                  <div className="overflow-hidden">
-                    <table className="w-full text-left border-collapse border border-slate-300 shadow-2xs">
-                      <thead>
-                        <tr className="bg-[#0B2447] text-white text-[8px] font-black uppercase tracking-wider">
-                          <th className="py-1 px-1.5 border-r border-blue-900/80">
-                            CONFLICTOS MAS COMUNES
-                          </th>
-                          <th className="py-1 px-1 text-center w-[18%] border-r border-blue-900/80">
-                            TOTALE
-                          </th>
-                          <th className="py-1 px-1 text-center w-[16%]">
-                            %
-                          </th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {displayRows.map((r) => (
-                          <tr key={r.incidencia} className="border-b border-slate-200/90">
-                            {/* Columna 1: Fondo azul oscuro, texto blanco */}
-                            <td
-                              className="bg-[#1B3A6B] text-white font-bold text-[7px] uppercase border-r border-blue-900/40 tracking-tight leading-[1.0] py-[0.8px] px-1.5 truncate max-w-[190px]"
-                              title={r.incidencia}
-                            >
-                              {r.incidencia}
-                            </td>
-                            {/* Columna 2: Fondo blanco, texto centrado */}
-                            <td className="bg-white text-slate-900 font-black font-mono text-center text-[7.2px] border-r border-slate-300 py-[0.8px] px-1">
-                              {r.total.toLocaleString()}
-                            </td>
-                            {/* Columna 3: % respecto al total del mes */}
-                            <td className="bg-white text-slate-800 font-bold font-mono text-center text-[7px] py-[0.8px] px-1">
-                              {r.porcentaje.toFixed(2)}%
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                      <tfoot>
-                        <tr className="border-t-2 border-[#0B2447]">
-                          {/* Fila final: TOTAL DE INCIDENCIAS con suma total y 100% */}
-                          <td className="py-1 px-1.5 bg-[#0B2447] text-white font-black text-[8px] uppercase border-r border-blue-900">
-                            TOTAL DE INCIDENCIAS
-                          </td>
-                          <td className="py-1 px-1 bg-white text-[#0B2447] font-black font-mono text-center text-[8.5px] border-r border-slate-300">
-                            {totalMesCasos.toLocaleString()}
-                          </td>
-                          <td className="py-1 px-1 bg-white text-[#0B2447] font-black font-mono text-center text-[8.5px]">
-                            100%
-                          </td>
-                        </tr>
-                      </tfoot>
-                    </table>
-                  </div>
-                )}
-
-                {/* Sub-pie informativo de la tabla */}
-                <div className="pt-1 border-t border-slate-200 text-[8px] text-slate-600 font-semibold flex items-center justify-between">
-                  <span>
-                    Totalidad: <strong>{displayRows.length}</strong> conflictos registrados
-                  </span>
-                  <span className="font-mono text-blue-900 font-bold">
-                    {reportData.porcentajeAnual}% anual distrital
-                  </span>
-                </div>
-              </div>
-
-              {/* =================================================================== */}
-              {/* COLUMNA DERECHA (64%): TÍTULO, SUBTÍTULO Y GRÁFICO DE BARRAS        */}
-              {/* =================================================================== */}
-              <div className="w-[64%] flex flex-col justify-between flex-1 h-full">
-                {/* Cabecera de la columna derecha */}
-                <div className="mb-1 pb-1 border-b border-slate-200 shrink-0 text-left">
-                  <h2 className="text-[12px] font-black text-[#0B2447] uppercase tracking-wide leading-tight font-sans">
-                    EN LOS PRINCIPALES CONFLICTOS MAS COMUNES DE LA JURISDICCION
-                  </h2>
-                  <p className="text-[10px] font-bold text-slate-700 mt-0.5 font-sans">
-                    {subtituloPeriodo}
-                  </p>
-                </div>
-
-                {/* Gráfico de Barras Horizontales (SVG exacto ordenado de mayor a menor) */}
-                <div className="w-full bg-white/95 border border-slate-200 rounded-lg p-2 shadow-2xs flex flex-col justify-between flex-1 min-h-0">
-                  {!hasData ? (
-                    <div className="w-full h-full flex flex-col items-center justify-center p-6 text-center">
-                      <div className="w-12 h-12 rounded-full bg-slate-100 flex items-center justify-center text-slate-400 mb-2">
-                        <FileText className="w-6 h-6" />
-                      </div>
-                      <h4 className="text-xs font-black text-slate-700 uppercase">
-                        Gráfico Estadístico No Disponible
-                      </h4>
-                      <p className="text-[11px] text-slate-500 mt-1 max-w-sm">
-                        Al no haber atenciones registradas en {selectedMes} 2026, el gráfico de barras horizontales se activará cuando existan casos o seleccione otro mes activo.
-                      </p>
-                    </div>
-                  ) : (
-                    <div className="w-full h-full flex items-center justify-center overflow-hidden">
-                      <svg
-                        xmlns="http://www.w3.org/2000/svg"
-                        viewBox={`0 0 ${svgWidth} ${svgHeight}`}
-                        className="w-full h-full"
-                        style={{ maxHeight: '610px', display: 'block' }}
-                        preserveAspectRatio="xMidYMid meet"
-                      >
-                        {/* Fondo limpio */}
-                        <rect x="0" y="0" width={svgWidth} height={svgHeight} fill="none" />
-
-                        {/* Líneas de cuadrícula verticales grises y números en eje X */}
-                        {xGridValues.map((val) => {
-                          const x = chartMarginLeft + (val / xAxisMax) * plotAreaWidth;
-                          return (
-                            <g key={val}>
-                              <line
-                                x1={x}
-                                y1={chartMarginTop}
-                                x2={x}
-                                y2={chartMarginTop + plotAreaHeight}
-                                stroke="#e2e8f0"
-                                strokeWidth="1"
-                                strokeDasharray={val === 0 ? '0' : '3 3'}
-                              />
-                              {/* Etiqueta numérica del eje X abajo */}
-                              <text
-                                x={x}
-                                y={chartMarginTop + plotAreaHeight + 14}
-                                textAnchor="middle"
-                                fontSize="8"
-                                fill="#64748b"
-                                fontWeight="600"
-                                fontFamily="sans-serif"
-                              >
-                                {val.toLocaleString()}
-                              </text>
-                            </g>
-                          );
-                        })}
-
-                        {/* Eje Y base continuo vertical */}
-                        <line
-                          x1={chartMarginLeft}
-                          y1={chartMarginTop}
-                          x2={chartMarginLeft}
-                          y2={chartMarginTop + plotAreaHeight}
-                          stroke="#94a3b8"
-                          strokeWidth="1.5"
-                        />
-
-                        {/* Eje X inferior continuo horizontal */}
-                        <line
-                          x1={chartMarginLeft}
-                          y1={chartMarginTop + plotAreaHeight}
-                          x2={chartMarginLeft + plotAreaWidth}
-                          y2={chartMarginTop + plotAreaHeight}
-                          stroke="#94a3b8"
-                          strokeWidth="1"
-                        />
-
-                        {/* BARRAS HORIZONTALES: Nombres rectos a la izquierda y número al final de la barra */}
-                        {chartRows.map((r, idx) => {
-                          const yCenter = chartMarginTop + idx * rowHeight + rowHeight / 2;
-                          const barY = yCenter - barHeight / 2;
-                          const barWidth = Math.max(3, (r.total / xAxisMax) * plotAreaWidth);
-                          const barEndX = chartMarginLeft + barWidth;
-
-                          // Nombres largos se leen completos y rectos
-                          const labelText =
-                            r.incidencia.length > 34
-                              ? r.incidencia.slice(0, 33) + '…'
-                              : r.incidencia;
-
-                          return (
-                            <g key={r.incidencia} className="transition-all">
-                              {/* Nombre del conflicto en texto horizontal, recto y alineado a la derecha del margen */}
-                              <text
-                                x={chartMarginLeft - 7}
-                                y={yCenter + 2.8}
-                                textAnchor="end"
-                                fontSize="7.5"
-                                fontWeight="700"
-                                fill="#1e293b"
-                                fontFamily="sans-serif"
-                              >
-                                {labelText}
-                                <title>{r.incidencia}</title>
-                              </text>
-
-                              {/* Barra horizontal azul */}
-                              <rect
-                                x={chartMarginLeft}
-                                y={barY}
-                                width={barWidth}
-                                height={barHeight}
-                                fill="#1E40AF"
-                                rx="1.5"
-                              >
-                                <title>{`${r.incidencia}: ${r.total.toLocaleString()} atenciones (${r.porcentaje.toFixed(2)}%)`}</title>
-                              </rect>
-
-                              {/* Valor numérico exacto justo al final de la barra */}
-                              <text
-                                x={barEndX + 5}
-                                y={yCenter + 2.8}
-                                textAnchor="start"
-                                fontSize="7.5"
-                                fontWeight="800"
-                                fill="#0B2447"
-                                fontFamily="sans-serif"
-                              >
-                                {r.total.toLocaleString()}
-                              </text>
-                            </g>
-                          );
-                        })}
-                      </svg>
-                    </div>
-                  )}
-
-                  {/* Leyenda y pie del gráfico */}
-                  <div className="pt-1 border-t border-slate-100 flex items-center justify-between text-[8px] text-slate-500 font-semibold shrink-0">
-                    <div className="flex items-center gap-1.5">
-                      <span className="w-2.5 h-2.5 bg-[#1E40AF] rounded-xs inline-block" />
-                      <span className="text-slate-700 font-bold">
-                        Todas las {chartRows.length} incidencias registradas en {selectedMes} 2026 (Ordenadas de mayor a menor)
-                      </span>
-                    </div>
-                    <span className="font-mono text-slate-400">
-                      Fuente: Libro Digital de Ocurrencias Serenazgo
-                    </span>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* --------------------------------------------------------------------- */}
-            {/* 4. PIE DE PÁGINA: CRÉDITOS OFICIALES Y SUBGERENCIA                     */}
-            {/* --------------------------------------------------------------------- */}
-            <div className="relative z-10 w-full pt-1.5 border-t border-slate-300 flex items-center justify-between text-[9px] text-slate-700 font-semibold shrink-0 mt-1">
-              <div className="flex items-center gap-1.5">
-                <span className="w-2 h-2 rounded-full bg-emerald-600 inline-block shrink-0" />
-                <span className="font-bold text-slate-800 tracking-tight font-sans">
-                  Elaborado por: Arturo David Rivero Onofre (ADRO) | Sistema Integrado de Seguridad Ciudadana - MDNCH
-                </span>
-              </div>
-              <div className="flex items-center gap-2 text-slate-600 font-bold text-[9px] font-sans">
-                <span>Subgerencia de Seguridad Ciudadana • Nuevo Chimbote 2026</span>
-              </div>
-            </div>
-          </div>
+          {/* Botón: Cerrar */}
+          <button
+            type="button"
+            id="btn-close-monthly-modal"
+            onClick={onClose}
+            className="px-3.5 py-1.5 rounded-xl bg-slate-700/90 hover:bg-slate-600 text-slate-100 font-bold text-xs flex items-center gap-1 transition-all cursor-pointer border border-slate-500 shadow-sm active:scale-95 ml-1"
+            title="Cerrar ventana de previsualización"
+          >
+            <X className="w-4 h-4 text-slate-300" />
+            <span>Cerrar</span>
+          </button>
         </div>
       </div>
+
+      {/* ===================================================================== */}
+      {/* CUERPO DEL MODAL: PREVISUALIZACIÓN DE HOJA 1 Y HOJA 2                */}
+      {/* ===================================================================== */}
+      <div className="flex-1 overflow-y-auto p-3 sm:p-5 bg-slate-900/60 flex flex-col items-center gap-5 print:p-0 print:bg-white print:gap-0 print:overflow-visible">
+        
+        {/* =================================================================== */}
+        {/* HOJA 1: MATRIZ COMPLETA DE TODAS LAS ATENCIONES (SIN CORTES EN 23)   */}
+        {/* =================================================================== */}
+        <div
+          id="monthly-report-page-1"
+          className="print-landscape-page print-page-1 bg-white text-slate-900 w-full max-w-[1240px] rounded-xl shadow-2xl border border-slate-300 flex flex-col justify-between p-4 sm:p-5 min-h-[770px] print:shadow-none print:border-none print:rounded-none"
+        >
+          {/* CABECERA AZUL INSTITUCIONAL EN 3 COLUMNAS CON LOS LOGOS REALES DEL PROYECTO */}
+          <div className="w-full bg-[#0B2447] text-white rounded-lg px-4 py-2 flex items-center justify-between border-b-2 border-cyan-400 shadow-sm shrink-0">
+            {/* Columna Izquierda: Escudo Municipal Oficial de Nuevo Chimbote */}
+            <div className="w-1/4 flex items-center justify-start">
+              <div className="bg-white rounded-md p-1 shadow-xs border border-white/40 flex items-center justify-center shrink-0">
+                <img
+                  src="/logo-muni.png"
+                  onError={(e) => {
+                    const target = e.currentTarget as HTMLImageElement;
+                    if (target.src.endsWith('/logo-muni.png')) {
+                      target.src = '/LOGO final.png';
+                    }
+                  }}
+                  crossOrigin="anonymous"
+                  alt="Escudo Municipalidad Distrital de Nuevo Chimbote"
+                  className="h-10 w-auto object-contain max-w-[130px]"
+                  loading="eager"
+                />
+              </div>
+            </div>
+
+            {/* Columna Central: Textos Oficiales Centrados */}
+            <div className="w-2/4 text-center px-2">
+              <h1 className="text-[11.5px] sm:text-xs font-black text-white uppercase tracking-wider leading-tight font-sans">
+                MUNICIPALIDAD DISTRITAL DE NUEVO CHIMBOTE
+              </h1>
+              <h2 className="text-[10px] sm:text-[11px] font-bold text-cyan-200 uppercase tracking-wide mt-0.5 font-sans">
+                SUBGERENCIA DE SEGURIDAD CIUDADANA Y SERENAZGO
+              </h2>
+              <p className="text-[9.5px] sm:text-[10px] font-extrabold text-amber-300 uppercase tracking-wider mt-0.5 font-sans">
+                FICHA OFICIAL DE INCIDENCIAS OPERATIVAS &bull; MES DE {safeMes} 2026 &bull; PÁGINA 01 DE 02
+              </p>
+            </div>
+
+            {/* Columna Derecha: Componente <SerenazgoLogo /> Oficial del Proyecto */}
+            <div className="w-1/4 flex items-center justify-end">
+              <div className="flex items-center gap-2">
+                <div className="hidden lg:block text-right leading-none">
+                  <div className="text-[8.5px] font-black uppercase text-cyan-300">SERENAZGO</div>
+                  <div className="text-[7.5px] font-bold text-slate-300 uppercase mt-0.5">NUEVO CHIMBOTE</div>
+                </div>
+                <div className="p-0.5 rounded-full bg-white/10 border border-white/20 shadow-xs flex items-center justify-center">
+                  <SerenazgoLogo className="w-10 h-10 sm:w-11 sm:h-11 object-contain" />
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Sub-barra informativa con Periodo y Total Atenciones */}
+          <div className="w-full bg-slate-100 border border-slate-300 rounded-md mt-1.5 px-3 py-1 flex items-center justify-between text-[10.5px] font-bold text-slate-800 shrink-0">
+            <div className="flex items-center gap-1.5">
+              <span className="text-slate-600 font-semibold">Periodo Oficial:</span>
+              <span className="text-blue-950 font-black">{reportData.rangoFechas}</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-slate-600 font-semibold">Total Atenciones:</span>
+              <span className="text-blue-950 font-black font-mono">
+                {reportData.totalMes.toLocaleString()} casos
+              </span>
+              <span className="text-teal-700 font-bold">
+                ({reportData.porcentajeAnual}% anual)
+              </span>
+            </div>
+          </div>
+
+          {/* TABLA COMPLETA: text-[9px] y py-0.5 px-2 (Rinde todas las atenciones sin cortes) */}
+          <div className="flex-1 w-full flex flex-col justify-between mt-1.5 overflow-hidden">
+            {displayRows.length === 0 ? (
+              <div className="flex-1 flex flex-col items-center justify-center p-6 text-center bg-slate-50 border border-slate-200 rounded-lg">
+                <AlertTriangle className="w-7 h-7 text-amber-500 mb-1" />
+                <h3 className="text-xs font-black uppercase text-slate-800">
+                  Sin registros disponibles para {safeMes} 2026
+                </h3>
+              </div>
+            ) : (
+              <div className="w-full flex-1 flex flex-col justify-between">
+                <table className="w-full border-collapse border border-slate-300 shadow-2xs text-[9px] leading-tight">
+                  <thead>
+                    <tr className="bg-[#0B2447] text-white font-black uppercase tracking-wider text-[9px]">
+                      <th className="py-0.5 px-2 border border-blue-900 text-center w-8">N°</th>
+                      <th className="py-0.5 px-2.5 border border-blue-900 text-left">
+                        PRINCIPALES CONFLICTOS MÁS COMUNES DE LA JURISDICCIÓN
+                      </th>
+                      <th className="py-0.5 px-2 border border-blue-900 text-center w-28">
+                        CANTIDAD ATENCIONES
+                      </th>
+                      <th className="py-0.5 px-2 border border-blue-900 text-center w-20">
+                        % RELATIVO
+                      </th>
+                      <th className="py-0.5 px-2 border border-blue-900 text-center w-48">
+                        NIVEL DE PRIORIDAD
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {displayRows.map((r, idx) => {
+                      const isViolencia = r.incidencia.includes('VIOLENCIA FAMILIAR');
+                      return (
+                        <tr
+                          key={r.incidencia}
+                          className={`border-b border-slate-200 ${
+                            idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/70'
+                          }`}
+                        >
+                          <td className="py-0.5 px-2 text-center font-bold text-slate-600 border-x border-slate-200 font-mono">
+                            {idx + 1}
+                          </td>
+                          <td className="py-0.5 px-2.5 font-bold uppercase text-slate-900 border-r border-slate-200 truncate max-w-[340px]">
+                            {r.incidencia}
+                          </td>
+                          <td className="py-0.5 px-2 text-center font-black font-mono text-slate-950 bg-slate-50/50 border-r border-slate-200">
+                            {r.total.toLocaleString()}
+                          </td>
+                          <td className="py-0.5 px-2 text-center font-bold font-mono text-blue-950 bg-slate-50/50 border-r border-slate-200">
+                            {r.porcentaje.toFixed(2)}%
+                          </td>
+                          <td className="py-0.5 px-2 text-center border-r border-slate-200">
+                            {isViolencia ? (
+                              <span className="inline-block px-1.5 py-0.2 rounded bg-rose-100 border border-rose-300 text-rose-800 font-black text-[8px] tracking-tight uppercase">
+                                ALTA (CÓDIGO ROJO - LEY 30364)
+                              </span>
+                            ) : (
+                              <span className="inline-block px-1.5 py-0.2 rounded bg-slate-100 border border-slate-300 text-slate-700 font-bold text-[8px] tracking-tight uppercase">
+                                ORDINARIA
+                              </span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                  <tfoot>
+                    {/* Fila final TOTAL destacada */}
+                    <tr className="bg-[#0B2447] text-white border-t-2 border-cyan-400 font-black text-[9.5px]">
+                      <td className="py-1 px-2 text-center text-amber-300 border-r border-blue-900">
+                        &bull;
+                      </td>
+                      <td className="py-1 px-2.5 text-left uppercase text-amber-300 tracking-wide border-r border-blue-900">
+                        TOTAL DE ATENCIONES REGISTRADAS EN {safeMes} 2026 ({displayRows.length} CONFLICTOS)
+                      </td>
+                      <td className="py-1 px-2 text-center font-mono text-white border-r border-blue-900">
+                        {reportData.totalMes.toLocaleString()}
+                      </td>
+                      <td className="py-1 px-2 text-center font-mono text-white border-r border-blue-900">
+                        100.00%
+                      </td>
+                      <td className="py-1 px-2 text-center uppercase text-cyan-300 text-[8.5px] tracking-wider">
+                        CUMPLIMIENTO DE META 100%
+                      </td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            )}
+          </div>
+
+          {/* Pie de página institucional Hoja 1 */}
+          <div className="mt-2 pt-1.5 border-t-2 border-slate-300 flex items-center justify-between text-[10px] text-slate-600 shrink-0 font-medium">
+            <div className="flex items-center gap-1.5 font-bold text-[#0B2447]">
+              <span>CENTRO DE COMANDO Y CONTROL C2 - MDNCH</span>
+              <span className="text-slate-400">&bull;</span>
+              <span className="font-normal text-slate-600">
+                Subgerencia de Seguridad Ciudadana y Serenazgo
+              </span>
+            </div>
+            <div className="text-center text-slate-500 font-medium hidden sm:block text-[9.5px]">
+              Elaborado por: Arturo David Rivero Onofre (ADRO) &bull; Sistema Integrado de Seguridad Ciudadana
+            </div>
+            <div className="font-mono font-bold text-[#0B2447]">
+              Página 01 de 02
+            </div>
+          </div>
+        </div>
+
+        {/* =================================================================== */}
+        {/* HOJA 2: GRÁFICO HORIZONTAL SEPARADO (page-break-before: always)     */}
+        {/* =================================================================== */}
+        <div
+          id="monthly-report-page-2"
+          className="print-landscape-page print-page-2 bg-white text-slate-900 w-full max-w-[1240px] rounded-xl shadow-2xl border border-slate-300 flex flex-col justify-between p-4 sm:p-5 min-h-[770px] print:shadow-none print:border-none print:rounded-none"
+        >
+          {/* CABECERA AZUL INSTITUCIONAL EN 3 COLUMNAS CON LOS LOGOS REALES (HOJA 2) */}
+          <div className="w-full bg-[#0B2447] text-white rounded-lg px-4 py-2 flex items-center justify-between border-b-2 border-cyan-400 shadow-sm shrink-0">
+            {/* Columna Izquierda: Escudo Municipal */}
+            <div className="w-1/4 flex items-center justify-start">
+              <div className="bg-white rounded-md p-1 shadow-xs border border-white/40 flex items-center justify-center shrink-0">
+                <img
+                  src="/logo-muni.png"
+                  onError={(e) => {
+                    const target = e.currentTarget as HTMLImageElement;
+                    if (target.src.endsWith('/logo-muni.png')) {
+                      target.src = '/LOGO final.png';
+                    }
+                  }}
+                  crossOrigin="anonymous"
+                  alt="Escudo Municipalidad Distrital de Nuevo Chimbote"
+                  className="h-10 w-auto object-contain max-w-[130px]"
+                  loading="eager"
+                />
+              </div>
+            </div>
+
+            {/* Columna Central: Textos Oficiales Centrados */}
+            <div className="w-2/4 text-center px-2">
+              <h1 className="text-[11.5px] sm:text-xs font-black text-white uppercase tracking-wider leading-tight font-sans">
+                MUNICIPALIDAD DISTRITAL DE NUEVO CHIMBOTE
+              </h1>
+              <h2 className="text-[10px] sm:text-[11px] font-bold text-cyan-200 uppercase tracking-wide mt-0.5 font-sans">
+                SUBGERENCIA DE SEGURIDAD CIUDADANA Y SERENAZGO
+              </h2>
+              <p className="text-[9.5px] sm:text-[10px] font-extrabold text-amber-300 uppercase tracking-wider mt-0.5 font-sans">
+                REPORTE ESTADÍSTICO MENSUAL &bull; MES DE {safeMes} 2026 &bull; PÁGINA 02 DE 02
+              </p>
+            </div>
+
+            {/* Columna Derecha: Componente <SerenazgoLogo /> Oficial */}
+            <div className="w-1/4 flex items-center justify-end">
+              <div className="flex items-center gap-2">
+                <div className="hidden lg:block text-right leading-none">
+                  <div className="text-[8.5px] font-black uppercase text-cyan-300">SERENAZGO</div>
+                  <div className="text-[7.5px] font-bold text-slate-300 uppercase mt-0.5">NUEVO CHIMBOTE</div>
+                </div>
+                <div className="p-0.5 rounded-full bg-white/10 border border-white/20 shadow-xs flex items-center justify-center">
+                  <SerenazgoLogo className="w-10 h-10 sm:w-11 sm:h-11 object-contain" />
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Título y subtítulo del Gráfico */}
+          <div className="w-full text-center mt-2 mb-1.5 shrink-0">
+            <h3 className="text-xs sm:text-sm font-black text-[#0B2447] uppercase tracking-wide font-sans">
+              EVOLUCIÓN Y DISTRIBUCIÓN DE CONFLICTOS OPERATIVOS &bull; MES DE {safeMes} 2026
+            </h3>
+            <p className="text-[10.5px] text-slate-500 font-medium mt-0.5">
+              Gráfico de barras horizontales en degradado azul tipo cilindro con los principales conflictos registrados (ordenados de mayor a menor)
+            </p>
+          </div>
+
+          {/* CONTENEDOR DEL GRÁFICO DE BARRAS HORIZONTALES AZUL CILÍNDRICO */}
+          <div className="flex-1 w-full bg-slate-50 border border-slate-300 rounded-lg p-3.5 flex flex-col justify-between my-1.5 overflow-hidden shadow-inner">
+            <div className="w-full flex-1 flex flex-col justify-center gap-1.5">
+              {chartRows.map((item, idx) => {
+                const pctOfMax = Math.min(100, Math.max(3, (item.total / xAxisMax) * 100));
+                return (
+                  <div key={item.incidencia} className="flex items-center gap-3 w-full">
+                    {/* Etiqueta del conflicto */}
+                    <div className="w-[32%] text-right font-bold text-slate-800 text-[10.5px] truncate uppercase font-sans">
+                      <span className="text-slate-400 font-mono mr-1.5">{idx + 1}.</span>
+                      {item.incidencia}
+                    </div>
+
+                    {/* Barra cilíndrica con efecto de brillo y degradado azul */}
+                    <div className="flex-1 relative h-5 sm:h-6 bg-slate-200/80 rounded-md overflow-hidden flex items-center border border-slate-300/70">
+                      <div
+                        className="h-full rounded-r-md transition-all duration-500 relative overflow-hidden"
+                        style={{
+                          width: `${pctOfMax}%`,
+                          background: 'linear-gradient(180deg, #38bdf8 0%, #1d4ed8 45%, #0f172a 100%)',
+                          boxShadow: '0 2px 4px rgba(15, 23, 42, 0.25)',
+                        }}
+                      >
+                        {/* Reflejo superior cilíndrico */}
+                        <div className="absolute top-0 inset-x-0 h-[38%] bg-gradient-to-b from-white/70 via-white/30 to-transparent pointer-events-none" />
+                        {/* Sombra inferior de relieve */}
+                        <div className="absolute bottom-0 inset-x-0 h-[22%] bg-black/35 pointer-events-none" />
+                      </div>
+
+                      {/* Cifra al final de la barra */}
+                      <span className="ml-2 text-[11px] font-black font-mono text-[#0B2447] whitespace-nowrap">
+                        {item.total.toLocaleString()} casos ({item.porcentaje.toFixed(1)}%)
+                      </span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Eje de escala horizontal */}
+            <div className="pt-1.5 mt-1 border-t border-slate-300 flex items-center justify-between text-[9.5px] font-mono font-bold text-slate-500 px-[32%]">
+              {xGridTicks.map((val) => (
+                <div key={val} className="flex flex-col items-center">
+                  <div className="h-1.5 w-px bg-slate-400 mb-0.5" />
+                  <span>{val.toLocaleString()}</span>
+                </div>
+              ))}
+            </div>
+            <div className="text-center text-[9px] font-bold text-slate-600 mt-0.5 uppercase">
+              Escala: Número de Atenciones Registradas (Casos)
+            </div>
+          </div>
+
+          {/* 4 KPIs Resumen al pie de la Hoja 2 */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-1.5 shrink-0">
+            <div className="p-2 rounded-lg bg-slate-50 border border-slate-200">
+              <div className="text-[9px] font-black uppercase text-slate-500">
+                CONFLICTO PRINCIPAL (#1)
+              </div>
+              <div className="text-xs sm:text-sm font-black text-[#0B2447] truncate mt-0.5">
+                {top1Short}
+              </div>
+              <div className="text-[9.5px] font-bold text-slate-600 mt-0.5">
+                {top1Count.toLocaleString()} casos registrados
+              </div>
+            </div>
+
+            <div className="p-2 rounded-lg bg-rose-50/70 border border-rose-200">
+              <div className="text-[9px] font-black uppercase text-rose-700">
+                VIOLENCIA FAMILIAR (LEY 30364)
+              </div>
+              <div className="text-xs sm:text-sm font-black text-rose-900 mt-0.5">
+                {vfCount.toLocaleString()} casos
+              </div>
+              <div className="text-[9.5px] font-bold text-rose-600 mt-0.5">
+                Prioridad Código Rojo
+              </div>
+            </div>
+
+            <div className="p-2 rounded-lg bg-teal-50/70 border border-teal-200">
+              <div className="text-[9px] font-black uppercase text-teal-700">
+                TOTAL ATENCIONES MES
+              </div>
+              <div className="text-xs sm:text-sm font-black text-teal-950 font-mono mt-0.5">
+                {reportData.totalMes.toLocaleString()}
+              </div>
+              <div className="text-[9.5px] font-bold text-teal-600 mt-0.5">
+                100% de la ficha mensual
+              </div>
+            </div>
+
+            <div className="p-2 rounded-lg bg-blue-50/70 border border-blue-200">
+              <div className="text-[9px] font-black uppercase text-blue-700">
+                PORCENTAJE ANUAL
+              </div>
+              <div className="text-xs sm:text-sm font-black text-blue-950 font-mono mt-0.5">
+                {reportData.porcentajeAnual}%
+              </div>
+              <div className="text-[9.5px] font-bold text-blue-600 mt-0.5">
+                Del total distrital 2026
+              </div>
+            </div>
+          </div>
+
+          {/* Pie de página institucional Hoja 2 */}
+          <div className="mt-2 pt-1.5 border-t-2 border-slate-300 flex items-center justify-between text-[10px] text-slate-600 shrink-0 font-medium">
+            <div className="flex items-center gap-1.5 font-bold text-[#0B2447]">
+              <span>CENTRO DE COMANDO Y CONTROL C2 - MDNCH</span>
+              <span className="text-slate-400">&bull;</span>
+              <span className="font-normal text-slate-600">
+                Subgerencia de Seguridad Ciudadana y Serenazgo &bull; Municipalidad Distrital de Nuevo Chimbote
+              </span>
+            </div>
+            <div className="font-mono font-bold text-[#0B2447]">
+              Página 02 de 02
+            </div>
+          </div>
+        </div>
+
+      </div>
     </div>
-  );
-};
-
-// =========================================================================
-// 4. EXPORTACIÓN PRINCIPAL ENVUELTA EN ERROR BOUNDARY
-// =========================================================================
-export const MonthlyReportModal: React.FC<MonthlyReportModalProps> = (props) => {
-  if (!props.isOpen) return null;
-
-  return (
-    <MonthlyReportErrorBoundary onClose={props.onClose}>
-      <MonthlyReportModalContent {...props} />
-    </MonthlyReportErrorBoundary>
   );
 };

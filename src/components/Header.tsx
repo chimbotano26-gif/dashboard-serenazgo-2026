@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from 'react';
-import { ActiveTab } from '../types';
+import React, { useEffect, useState, useRef } from 'react';
+import { ActiveTab, IncidentRecord, MesType } from '../types';
 import {
   BarChart3,
   FileSpreadsheet,
@@ -7,44 +7,53 @@ import {
   MapPin,
   FileText,
   Clock,
-  Radio,
   ShieldCheck,
   Lock,
-  Unlock,
   LogOut,
   RotateCcw,
   Upload,
-  Printer,
+  Download,
+  ChevronDown,
   Table,
-  Flame,
 } from 'lucide-react';
 import { useAuth } from '../utils/authContext';
 import { SerenazgoLogo } from './SerenazgoLogo';
+import { MESES_LIST } from '../data/mockData';
+import {
+  getAnnualConsolidatedData,
+  exportAnnualConsolidatedExcel,
+  exportAnnualConsolidatedPDF,
+  exportMonthlyReportByMonth,
+} from '../utils/reportGenerator';
 
 interface HeaderProps {
   activeTab: ActiveTab;
   setActiveTab: (tab: ActiveTab) => void;
+  records?: IncidentRecord[];
   onResetFilters?: () => void;
   onOpenAnnualConsolidated?: () => void;
   onOpenReportModal?: () => void;
   onOpenExcelModal?: () => void;
-  onReplayIntro?: () => void;
+  onOpenMonthlyReport?: (mes: MesType) => void;
   activeFiltersCount?: number;
 }
 
 export const Header: React.FC<HeaderProps> = ({
   activeTab,
   setActiveTab,
+  records = [],
   onResetFilters,
   onOpenAnnualConsolidated,
   onOpenReportModal,
   onOpenExcelModal,
-  onReplayIntro,
+  onOpenMonthlyReport,
   activeFiltersCount = 0,
 }) => {
-  const { isAdmin, adminEmail, openAuthModal, logoutToViewer } = useAuth();
+  const { isAdmin, openAuthModal, logoutToViewer } = useAuth();
   const [currentTime, setCurrentTime] = useState<string>('');
   const [currentDate, setCurrentDate] = useState<string>('');
+  const [isExportDropdownOpen, setIsExportDropdownOpen] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const updateTime = () => {
@@ -61,6 +70,17 @@ export const Header: React.FC<HeaderProps> = ({
     return () => clearInterval(interval);
   }, []);
 
+  // Cerrar dropdown al hacer clic fuera
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setIsExportDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
   const navItems: { id: ActiveTab; label: string; icon: React.ReactNode }[] = [
     { id: 'VISTA_RESUMEN', label: 'DASHBOARD EJECUTIVO', icon: <BarChart3 className="w-4 h-4" /> },
     { id: 'MAPA_CALOR', label: 'RADAR GEOESPACIAL', icon: <MapPin className="w-4 h-4" /> },
@@ -69,6 +89,28 @@ export const Header: React.FC<HeaderProps> = ({
     { id: 'DETALLE_INCIDENCIAS', label: 'DETALLE INCIDENCIAS', icon: <FileText className="w-4 h-4" /> },
     { id: 'BD', label: 'BD / EXCEL', icon: <FileSpreadsheet className="w-4 h-4" /> },
   ];
+
+  // Handlers para el dropdown de exportación
+  const handleExportAnnualPDF = () => {
+    setIsExportDropdownOpen(false);
+    const annualData = getAnnualConsolidatedData(records);
+    exportAnnualConsolidatedPDF(annualData);
+  };
+
+  const handleExportAnnualExcel = () => {
+    setIsExportDropdownOpen(false);
+    const annualData = getAnnualConsolidatedData(records);
+    exportAnnualConsolidatedExcel(annualData);
+  };
+
+  const handleExportMonthPDF = (mes: MesType) => {
+    setIsExportDropdownOpen(false);
+    if (onOpenMonthlyReport) {
+      onOpenMonthlyReport(mes);
+    } else {
+      exportMonthlyReportByMonth(records, mes);
+    }
+  };
 
   return (
     <header className="bg-[#1e293b] text-white border-b border-slate-700 shadow-md sticky top-0 z-30">
@@ -93,7 +135,7 @@ export const Header: React.FC<HeaderProps> = ({
                 DASHBOARD EJECUTIVO DE SEGURIDAD CIUDADANA Y SERENAZGO
               </h1>
               <p className="text-[11px] text-slate-300 font-medium truncate mt-0.5">
-                MUNICIPALIDAD DISTRITAL DE NUEVO CHIMBOTE &bull; MDNCH 2026 &bull; BASE CONSOLIDADA (21,144 REGISTROS)
+                MUNICIPALIDAD DISTRITAL DE NUEVO CHIMBOTE &bull; MDNCH 2026 &bull; BASE CONSOLIDADA ({records.length > 0 ? records.length.toLocaleString() : '22,058'} REGISTROS)
               </p>
             </div>
           </div>
@@ -108,7 +150,7 @@ export const Header: React.FC<HeaderProps> = ({
                 id="btn-header-reset-filters"
                 onClick={onResetFilters}
                 className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-600 text-xs font-bold flex items-center gap-1.5 transition-all active:scale-95 shadow-sm cursor-pointer"
-                title="Restablecer al instante todos los filtros (Mes, Comisaría, Zona, Turno) a los 21,144 casos originales"
+                title={`Restablecer al instante todos los filtros (Mes, Comisaría, Zona, Turno) a los ${records.length > 0 ? records.length.toLocaleString() : '22,058'} casos originales`}
               >
                 <RotateCcw className="w-3.5 h-3.5 text-teal-400" />
                 <span>Borrar Filtros</span>
@@ -118,49 +160,171 @@ export const Header: React.FC<HeaderProps> = ({
               </button>
             )}
 
-            {/* Botón 2: "Consolidado Anual" */}
-            {onOpenAnnualConsolidated && (
+            {/* Botón 2: DROPDOWN UNIFICADO "Exportar Reportes" */}
+            <div className="relative" ref={dropdownRef}>
               <button
                 type="button"
-                id="btn-header-annual-consolidated"
-                onClick={onOpenAnnualConsolidated}
-                className="px-3 py-1.5 rounded-xl bg-gradient-to-r from-teal-700 to-teal-600 hover:from-teal-600 hover:to-teal-500 text-white font-bold text-xs flex items-center gap-1.5 transition-all active:scale-95 shadow-sm border border-teal-500 cursor-pointer"
-                title="Abrir matriz completa de tipologías desglosada mes a mes de ENE a DIC con buscador, Excel y PDF"
+                id="btn-header-export-reports"
+                onClick={() => setIsExportDropdownOpen((prev) => !prev)}
+                className="px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-teal-700 via-teal-600 to-emerald-600 hover:from-teal-600 hover:to-emerald-500 text-white font-bold text-xs flex items-center gap-1.5 transition-all active:scale-95 shadow-sm border border-teal-400/50 cursor-pointer"
+                title="Centro unificado de descargas y exportación de reportes"
               >
-                <Table className="w-3.5 h-3.5 text-teal-200" />
-                <span>Consolidado Anual</span>
+                <Download className="w-3.5 h-3.5 text-teal-200" />
+                <span>Exportar Reportes</span>
+                <ChevronDown
+                  className={`w-3.5 h-3.5 text-teal-200 transition-transform duration-200 ${
+                    isExportDropdownOpen ? 'rotate-180' : ''
+                  }`}
+                />
               </button>
-            )}
 
-            {/* Botón 3: "Reporte PDF Oficial" (4 Hojas A4) */}
-            {onOpenReportModal && (
-              <button
-                type="button"
-                id="btn-header-pdf-official"
-                onClick={onOpenReportModal}
-                className="px-3 py-1.5 rounded-xl bg-gradient-to-r from-rose-700 to-rose-600 hover:from-rose-600 hover:to-rose-500 text-white font-bold text-xs flex items-center gap-1.5 transition-all active:scale-95 shadow-sm border border-rose-500 cursor-pointer"
-                title="Abrir visor oficial en formato estricto A4 distribuido en 4 hojas dedicadas con firma institucional"
-              >
-                <Printer className="w-3.5 h-3.5 text-rose-200" />
-                <span>Reporte PDF Oficial</span>
-              </button>
-            )}
+              {/* Panel Desplegable del Dropdown */}
+              {isExportDropdownOpen && (
+                <div className="absolute right-0 top-full mt-2 w-80 sm:w-96 bg-white text-slate-800 rounded-2xl shadow-2xl border border-slate-300 p-3.5 z-50 animate-fadeIn font-sans">
+                  {/* Encabezado del Dropdown */}
+                  <div className="px-2 pb-2 border-b border-slate-200 flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <FileText className="w-4 h-4 text-teal-700" />
+                      <span className="text-xs font-black uppercase text-[#1e293b] tracking-wide">
+                        Centro de Exportación de Reportes
+                      </span>
+                    </div>
+                    <span className="text-[10px] font-mono font-bold text-teal-800 bg-teal-50 px-2 py-0.5 rounded border border-teal-200">
+                      MDNCH 2026
+                    </span>
+                  </div>
 
-            {/* Botón Intro Cinemático Fiera de Fuego */}
-            {onReplayIntro && (
-              <button
-                type="button"
-                id="btn-header-replay-intro"
-                onClick={onReplayIntro}
-                className="px-2.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-amber-400 hover:text-amber-300 border border-slate-600 text-xs font-bold flex items-center gap-1.5 transition-all active:scale-95 shadow-sm cursor-pointer"
-                title="Reproducir animación cinemática de la Fiera de Fuego con el escudo oficial"
-              >
-                <Flame className="w-3.5 h-3.5 text-orange-500 animate-pulse" />
-                <span className="hidden sm:inline">Intro Fiera</span>
-              </button>
-            )}
+                  {/* SUBSECCIÓN 1: CONSOLIDADO ANUAL */}
+                  <div className="pt-2.5 pb-1">
+                    <div className="text-[10px] font-black uppercase text-slate-400 px-2 pb-1.5 flex items-center justify-between">
+                      <span>Consolidado General Anual (12 Meses)</span>
+                      <span className="text-[9px] text-slate-400 font-mono">
+                        {records.length > 0 ? `${records.length.toLocaleString()} atenciones` : '22,058 atenciones'}
+                      </span>
+                    </div>
 
-            {/* Botón 4: Modo Administrador / Subir Excel Supabase */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 px-1">
+                      {/* Opción 1: Exportar Anual a PDF */}
+                      <button
+                        type="button"
+                        id="btn-dropdown-export-annual-pdf"
+                        onClick={handleExportAnnualPDF}
+                        className="w-full px-3 py-2 rounded-xl bg-gradient-to-r from-rose-50 to-rose-100/70 hover:from-rose-100 hover:to-rose-200/80 border border-rose-200 text-rose-950 text-left transition-all flex items-center gap-2 shadow-xs cursor-pointer group"
+                      >
+                        <div className="p-1.5 bg-rose-600 text-white rounded-lg shrink-0 group-hover:scale-105 transition-transform">
+                          <FileText className="w-3.5 h-3.5" />
+                        </div>
+                        <div>
+                          <div className="text-xs font-black uppercase tracking-tight text-rose-950">
+                            Exportar Anual a PDF
+                          </div>
+                          <div className="text-[9.5px] text-rose-700 font-medium">
+                            Pág. 01 Matriz + Pág. 02 Gráfico
+                          </div>
+                        </div>
+                      </button>
+
+                      {/* Opción 2: Exportar Anual a Excel */}
+                      <button
+                        type="button"
+                        id="btn-dropdown-export-annual-excel"
+                        onClick={handleExportAnnualExcel}
+                        className="w-full px-3 py-2 rounded-xl bg-gradient-to-r from-emerald-50 to-emerald-100/70 hover:from-emerald-100 hover:to-emerald-200/80 border border-emerald-200 text-emerald-950 text-left transition-all flex items-center gap-2 shadow-xs cursor-pointer group"
+                      >
+                        <div className="p-1.5 bg-emerald-600 text-white rounded-lg shrink-0 group-hover:scale-105 transition-transform">
+                          <FileSpreadsheet className="w-3.5 h-3.5" />
+                        </div>
+                        <div>
+                          <div className="text-xs font-black uppercase tracking-tight text-emerald-950">
+                            Exportar Anual a Excel
+                          </div>
+                          <div className="text-[9.5px] text-emerald-700 font-medium">
+                            Hoja de cálculo .xlsx completa
+                          </div>
+                        </div>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* SUBSECCIÓN 2: REPORTES MENSUALES INDIVIDUALES (PDF - 2 HOJAS) */}
+                  <div className="pt-2.5 mt-2 border-t border-slate-200">
+                    <div className="px-2 pb-1.5 flex items-center justify-between">
+                      <span className="text-[10px] font-black uppercase text-slate-600 font-bold">
+                        Reporte Mensual Individual (PDF de 2 Hojas)
+                      </span>
+                      <span className="text-[9px] text-teal-700 font-bold bg-teal-50 px-1.5 py-0.2 rounded border border-teal-200">
+                        Hoja 1 Matriz + Hoja 2 Gráfico Azul
+                      </span>
+                    </div>
+
+                    <p className="px-2 text-[10px] text-slate-500 mb-2">
+                      Haz clic en cualquier mes para previsualizar y descargar su reporte oficial en PDF (2 Hojas):
+                    </p>
+
+                    {/* Grilla interactiva de los 12 meses */}
+                    <div className="grid grid-cols-3 sm:grid-cols-4 gap-1.5 px-1">
+                      {MESES_LIST.map((mes) => {
+                        const isSetiembre = mes === 'SETIEMBRE';
+                        return (
+                          <button
+                            key={mes}
+                            type="button"
+                            onClick={() => handleExportMonthPDF(mes)}
+                            className={`py-1.5 px-2 rounded-lg text-center transition-all flex flex-col items-center justify-center border cursor-pointer active:scale-95 shadow-xs ${
+                              isSetiembre
+                                ? 'bg-blue-600 text-white border-blue-700 hover:bg-blue-500'
+                                : 'bg-slate-50 hover:bg-teal-50 text-slate-800 hover:text-teal-900 border-slate-200 hover:border-teal-300'
+                            }`}
+                            title={`Exportar Ficha Oficial en PDF de ${mes} (Hoja 1 Matriz de Casos + Hoja 2 Gráfico de Barras Azul)`}
+                          >
+                            <span className="text-[10px] font-mono font-black uppercase tracking-tight">
+                              {mes.slice(0, 3)}
+                            </span>
+                            <span className={`text-[8.5px] font-bold ${isSetiembre ? 'text-blue-100' : 'text-slate-400'}`}>
+                              {mes}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Accesos directos a visualizadores en pantalla */}
+                  {(onOpenAnnualConsolidated || onOpenReportModal) && (
+                    <div className="mt-2.5 pt-2 border-t border-slate-200 flex items-center justify-between px-2 text-[10.5px]">
+                      {onOpenAnnualConsolidated && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setIsExportDropdownOpen(false);
+                            onOpenAnnualConsolidated();
+                          }}
+                          className="text-teal-700 hover:text-teal-900 font-bold flex items-center gap-1 cursor-pointer"
+                        >
+                          <Table className="w-3 h-3" />
+                          <span>Ver Matriz Anual</span>
+                        </button>
+                      )}
+                      {onOpenReportModal && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setIsExportDropdownOpen(false);
+                            onOpenReportModal();
+                          }}
+                          className="text-rose-700 hover:text-rose-900 font-bold flex items-center gap-1 cursor-pointer"
+                        >
+                          <FileText className="w-3 h-3" />
+                          <span>Visor A4 (4 Hojas)</span>
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Botón 3: Modo Administrador / Subir Excel Supabase */}
             {isAdmin ? (
               <div className="flex items-center gap-1.5 bg-emerald-950 border border-emerald-500/80 rounded-xl px-2.5 py-1 text-xs shadow-sm">
                 <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0" />

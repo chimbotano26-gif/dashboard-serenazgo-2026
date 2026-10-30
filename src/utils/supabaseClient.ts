@@ -369,7 +369,7 @@ export interface SupabaseQueryResult {
  * Además implementa paginación automática en bucle mediante .range()
  * para descargar sin truncar todas las más de 20.000 filas de la base de datos.
  */
-export const SUPABASE_TABLES_TO_TRY = ['atenciones_2026', 'atenciones', 'registros'];
+export const SUPABASE_TABLES_TO_TRY = ['registros', 'atenciones_2026', 'atenciones'];
 
 export async function fetchAllRegistrosFromSupabase(
   onProgress?: (loaded: number, total: number | null) => void
@@ -381,7 +381,7 @@ export async function fetchAllRegistrosFromSupabase(
     let count: number | null = null;
     let lastErr: any = null;
 
-    // Probar las tablas oficiales 'atenciones_2026', 'atenciones' y 'registros'
+    // Probar las tablas oficiales con prioridad 'registros', luego 'atenciones_2026' y 'atenciones'
     for (const tableCandidate of SUPABASE_TABLES_TO_TRY) {
       try {
         const { data, error, count: c } = await supabase
@@ -421,39 +421,57 @@ export async function fetchAllRegistrosFromSupabase(
     }
 
     let allRows: Record<string, any>[] = [...firstBatch];
-    if (onProgress) onProgress(allRows.length, count ?? null);
+    const totalCount = count ?? allRows.length;
+    if (onProgress) onProgress(allRows.length, totalCount);
 
-    // Si hay más filas, descargar con paginación
-    let from = BATCH_SIZE;
-    const totalTarget = count ?? Infinity;
-    let hasMore = true;
+    // Si hay más filas, descargar en paralelo con control de concurrencia
+    if (totalCount > BATCH_SIZE) {
+      const remainingBatchesCount = Math.ceil((totalCount - BATCH_SIZE) / BATCH_SIZE);
+      const batchResults: Record<string, any>[][] = new Array(remainingBatchesCount);
+      let batchIndex = 0;
+      let totalLoadedSoFar = firstBatch.length;
 
-    while (hasMore && from < totalTarget) {
-      const to = from + BATCH_SIZE - 1;
-      const { data: nextBatch, error: nextErr } = await supabase
-        .from(usedTable)
-        .select('*')
-        .range(from, to);
+      const CONCURRENCY = 6;
+      const workerCount = Math.min(CONCURRENCY, remainingBatchesCount);
 
-      if (nextErr) {
-        console.warn(`Aviso en paginación de Supabase (${usedTable}) ${from}-${to}:`, nextErr);
-        break;
+      const workers = Array.from({ length: workerCount }, async () => {
+        while (batchIndex < remainingBatchesCount) {
+          const currentBatchIdx = batchIndex++;
+          const from = BATCH_SIZE + currentBatchIdx * BATCH_SIZE;
+          const to = from + BATCH_SIZE - 1;
+
+          try {
+            const { data: batchData, error: batchErr } = await supabase
+              .from(usedTable)
+              .select('*')
+              .range(from, to);
+
+            if (batchErr) {
+              console.warn(`Reintento en paginación (${usedTable}) ${from}-${to}:`, batchErr);
+              // Reintento único
+              const retry = await supabase.from(usedTable).select('*').range(from, to);
+              batchResults[currentBatchIdx] = retry.data || [];
+            } else {
+              batchResults[currentBatchIdx] = batchData || [];
+            }
+          } catch (e) {
+            console.warn(`Error en lote ${from}-${to}:`, e);
+            batchResults[currentBatchIdx] = [];
+          }
+
+          totalLoadedSoFar += (batchResults[currentBatchIdx] || []).length;
+          if (onProgress) onProgress(Math.min(totalCount, totalLoadedSoFar), totalCount);
+        }
+      });
+
+      await Promise.all(workers);
+
+      // Ensamblar todas las filas en el orden exacto de índice
+      for (const batch of batchResults) {
+        if (batch && batch.length > 0) {
+          allRows = allRows.concat(batch);
+        }
       }
-
-      if (!nextBatch || nextBatch.length === 0) {
-        hasMore = false;
-        break;
-      }
-
-      allRows = allRows.concat(nextBatch);
-      if (onProgress) onProgress(allRows.length, count ?? null);
-
-      if (nextBatch.length < BATCH_SIZE) {
-        hasMore = false;
-        break;
-      }
-
-      from += BATCH_SIZE;
     }
 
     const records = transformSupabaseRowsToIncidents(allRows);

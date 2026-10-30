@@ -70,7 +70,7 @@ export const ExecutiveDashboardView: React.FC<ExecutiveDashboardViewProps> = ({
   onSelectTurno,
 }) => {
   const totalCount = records.length;
-  const baselineCount = allRecords.length || 21144;
+  const baselineCount = allRecords.length || 22058;
 
   // Cálculos dinámicos según registros filtrados
   const metrics = useMemo(() => {
@@ -173,33 +173,38 @@ export const ExecutiveDashboardView: React.FC<ExecutiveDashboardViewProps> = ({
     };
   }, [records, totalCount]);
 
-  // Helper para dibujar anillo SVG (Dona)
+  // Helper para dibujar anillo SVG (Dona) con porcentaje centrado al interior
   const renderDonut = (pct: number, color: string, radius = 28, stroke = 5.5) => {
     const circumference = 2 * Math.PI * radius;
     const strokeDashoffset = circumference - (pct / 100) * circumference;
     return (
-      <svg className="w-16 h-16 sm:w-20 sm:h-20 -rotate-90 shrink-0" viewBox="0 0 70 70">
-        <circle
-          cx="35"
-          cy="35"
-          r={radius}
-          stroke="#e2e8f0"
-          strokeWidth={stroke}
-          fill="transparent"
-        />
-        <circle
-          cx="35"
-          cy="35"
-          r={radius}
-          stroke={color}
-          strokeWidth={stroke}
-          fill="transparent"
-          strokeDasharray={circumference}
-          strokeDashoffset={strokeDashoffset}
-          strokeLinecap="round"
-          className="transition-all duration-700 ease-out"
-        />
-      </svg>
+      <div className="relative flex items-center justify-center shrink-0">
+        <svg className="w-16 h-16 sm:w-20 sm:h-20 -rotate-90 shrink-0" viewBox="0 0 70 70">
+          <circle
+            cx="35"
+            cy="35"
+            r={radius}
+            stroke="#e2e8f0"
+            strokeWidth={stroke}
+            fill="transparent"
+          />
+          <circle
+            cx="35"
+            cy="35"
+            r={radius}
+            stroke={color}
+            strokeWidth={stroke}
+            fill="transparent"
+            strokeDasharray={circumference}
+            strokeDashoffset={strokeDashoffset}
+            strokeLinecap="round"
+            className="transition-all duration-700 ease-out"
+          />
+        </svg>
+        <span className="absolute text-xs sm:text-sm font-black font-mono text-slate-800">
+          {pct.toFixed(0)}%
+        </span>
+      </div>
     );
   };
 
@@ -347,23 +352,23 @@ export const ExecutiveDashboardView: React.FC<ExecutiveDashboardViewProps> = ({
                 </span>
               </div>
               <div className="flex items-center justify-between text-[10px] font-mono text-slate-400 pt-1.5 border-t border-slate-100">
-                <span>Base: 21,144</span>
+                <span>Base: {baselineCount.toLocaleString()}</span>
                 <span className="text-teal-700 font-bold">{((totalCount / baselineCount) * 100).toFixed(0)}%</span>
               </div>
             </div>
 
-            {/* Tarjeta 2: CÍA. BS. AIRES con Anillo SVG Rose al 78% */}
+            {/* Tarjeta 2: CÍA. BS. AIRES con Anillo SVG Rose */}
             <div className="bg-white rounded-xl p-3.5 border border-[#e2e8f0] shadow-sm flex items-center justify-between text-slate-800">
               <div className="flex flex-col justify-between h-full">
                 <div className="text-[10px] font-black uppercase tracking-wider text-slate-500">
                   CÍA. BS. AIRES
                 </div>
                 <div className="my-1">
-                  <span className="text-2xl sm:text-3xl font-black font-mono text-rose-600 tracking-tight block">
-                    {metrics.pctBA.toFixed(0)}%
+                  <span className="text-2xl sm:text-3xl font-black font-mono text-[#1e293b] tracking-tight block">
+                    {metrics.ba.toLocaleString()}
                   </span>
-                  <span className="text-[11px] font-bold text-slate-600 font-mono">
-                    {metrics.ba.toLocaleString()} casos
+                  <span className="text-[11px] font-bold text-slate-500 font-mono uppercase tracking-wide">
+                    casos registrados
                   </span>
                 </div>
                 <span className="text-[9.5px] font-bold text-rose-700 bg-rose-50 px-1.5 py-0.5 rounded border border-rose-200 inline-block self-start">
@@ -373,18 +378,18 @@ export const ExecutiveDashboardView: React.FC<ExecutiveDashboardViewProps> = ({
               {renderDonut(metrics.pctBA, '#f43f5e')}
             </div>
 
-            {/* Tarjeta 3: CÍA. VILLA MARÍA con Anillo SVG Teal al 22% */}
+            {/* Tarjeta 3: CÍA. VILLA MARÍA con Anillo SVG Teal */}
             <div className="bg-white rounded-xl p-3.5 border border-[#e2e8f0] shadow-sm flex items-center justify-between text-slate-800">
               <div className="flex flex-col justify-between h-full">
                 <div className="text-[10px] font-black uppercase tracking-wider text-slate-500">
                   CÍA. VILLA MARÍA
                 </div>
                 <div className="my-1">
-                  <span className="text-2xl sm:text-3xl font-black font-mono text-teal-600 tracking-tight block">
-                    {metrics.pctVM.toFixed(0)}%
+                  <span className="text-2xl sm:text-3xl font-black font-mono text-[#1e293b] tracking-tight block">
+                    {metrics.vm.toLocaleString()}
                   </span>
-                  <span className="text-[11px] font-bold text-slate-600 font-mono">
-                    {metrics.vm.toLocaleString()} casos
+                  <span className="text-[11px] font-bold text-slate-500 font-mono uppercase tracking-wide">
+                    casos registrados
                   </span>
                 </div>
                 <span className="text-[9.5px] font-bold text-teal-700 bg-teal-50 px-1.5 py-0.5 rounded border border-teal-200 inline-block self-start">
@@ -637,47 +642,64 @@ export const ExecutiveDashboardView: React.FC<ExecutiveDashboardViewProps> = ({
             </div>
 
             {/* Gráfico de barras cilíndricas dobles expandido */}
-            <div className="h-64 sm:h-72 flex items-end justify-between gap-1 pt-3 pb-1 border-b border-slate-200">
-              {metrics.franjas.map((f) => {
-                const maxTotal = metrics.franjas[4].total || 1;
-                const barHeightPrev = Math.max(18, Math.round((f.preventivo / maxTotal) * 170));
-                const barHeightReact = Math.max(14, Math.round((f.reactivo / maxTotal) * 170));
-
-                return (
-                  <div key={f.label} className="flex-1 flex flex-col items-center justify-end h-full group">
-                    <div className="text-[9.5px] font-mono font-black text-slate-700 mb-1">
-                      {f.total.toLocaleString()}
-                    </div>
-                    <div className="flex items-end gap-1 w-full justify-center">
-                      {/* Barra Preventivo (Teal) */}
-                      <div
-                        style={{ height: `${barHeightPrev}px` }}
-                        className="w-2.5 sm:w-3.5 bg-gradient-to-t from-teal-700 to-teal-500 rounded-t-full shadow-sm relative group-hover:brightness-110 transition-all"
-                        title={`Preventivo: ${f.preventivo.toLocaleString()}`}
-                      ></div>
-                      {/* Barra Reactivo (Rose) */}
-                      <div
-                        style={{ height: `${barHeightReact}px` }}
-                        className="w-2.5 sm:w-3.5 bg-gradient-to-t from-rose-700 to-rose-500 rounded-t-full shadow-sm relative group-hover:brightness-110 transition-all"
-                        title={`Reactivo: ${f.reactivo.toLocaleString()}`}
-                      ></div>
-                    </div>
-                    <span className={`text-[10px] font-bold mt-2 font-mono ${f.isPeak ? 'text-rose-600 font-black' : 'text-slate-600'}`}>
-                      {f.label}
-                    </span>
-                  </div>
+            <div className="h-56 sm:h-64 max-h-[240px] flex items-end justify-between gap-1 sm:gap-2 pt-2.5 pb-1 border-b border-slate-200">
+              {(() => {
+                // Determinar el valor pico de barra individual (Preventivo en 16-20h con 3,383)
+                const peakSingleBar = Math.max(
+                  ...metrics.franjas.map((f) => Math.max(f.preventivo, f.reactivo)),
+                  1
                 );
-              })}
+
+                return metrics.franjas.map((f) => {
+                  // Escalar proporcionalmente aprovechando hasta el 85% del alto disponible para la barra pico
+                  const barHeightPrev = Math.min(85, Math.max(8, Math.round((f.preventivo / peakSingleBar) * 85)));
+                  const barHeightReact = Math.min(85, Math.max(6, Math.round((f.reactivo / peakSingleBar) * 85)));
+
+                  return (
+                    <div key={f.label} className="flex-1 flex flex-col items-center justify-end h-full group">
+                      {/* Cifra numérica superior de cada franja */}
+                      <span className="text-[10px] sm:text-[11px] font-mono font-black text-slate-800 mb-1.5 shrink-0">
+                        {f.total.toLocaleString()}
+                      </span>
+
+                      {/* Contenedor de barras verticales con espacio aprovechado */}
+                      <div className="flex items-end gap-1 sm:gap-1.5 w-full justify-center flex-1 max-h-[175px]">
+                        {/* Barra Preventivo (Verde esmeralda #0d9488) */}
+                        <div
+                          style={{ height: `${barHeightPrev}%` }}
+                          className="w-2.5 sm:w-3.5 bg-gradient-to-t from-[#0f766e] to-[#0d9488] rounded-t-md shadow-xs relative group-hover:brightness-110 transition-all duration-300 min-h-[10px]"
+                          title={`Preventivo (${f.label}): ${f.preventivo.toLocaleString()}`}
+                        />
+                        {/* Barra Reactivo (Carmesí #e11d48) */}
+                        <div
+                          style={{ height: `${barHeightReact}%` }}
+                          className="w-2.5 sm:w-3.5 bg-gradient-to-t from-[#be123c] to-[#e11d48] rounded-t-md shadow-xs relative group-hover:brightness-110 transition-all duration-300 min-h-[8px]"
+                          title={`Reactivo (${f.label}): ${f.reactivo.toLocaleString()}`}
+                        />
+                      </div>
+
+                      {/* Etiqueta horaria inferior (16-20h destacada en rojo) */}
+                      <span
+                        className={`text-[9.5px] sm:text-[10.5px] font-mono font-bold mt-2 shrink-0 ${
+                          f.isPeak ? 'text-rose-600 font-black' : 'text-slate-600'
+                        }`}
+                      >
+                        {f.label}
+                      </span>
+                    </div>
+                  );
+                });
+              })()}
             </div>
 
             {/* Leyenda del gráfico */}
-            <div className="flex items-center justify-center gap-4 text-[10px] text-slate-500 font-bold mt-2">
-              <span className="flex items-center gap-1">
-                <span className="w-2.5 h-2.5 rounded-full bg-teal-600"></span>
+            <div className="flex items-center justify-center gap-4 text-[10px] sm:text-[10.5px] text-slate-600 font-bold mt-2 pt-1">
+              <span className="flex items-center gap-1.5">
+                <span className="w-2.5 h-2.5 rounded-full bg-[#0d9488]"></span>
                 <span>Preventivo</span>
               </span>
-              <span className="flex items-center gap-1">
-                <span className="w-2.5 h-2.5 rounded-full bg-rose-500"></span>
+              <span className="flex items-center gap-1.5">
+                <span className="w-2.5 h-2.5 rounded-full bg-[#e11d48]"></span>
                 <span>Reactivo</span>
               </span>
             </div>

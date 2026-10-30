@@ -491,10 +491,330 @@ export function exportMonthlyReportLandscapePDF(
 }
 
 // =========================================================================
+// EXPORTACIÓN PDF OFICIAL DE 2 HOJAS (HOJA 1: MATRIZ + HOJA 2: BARRAS AZULES)
+// =========================================================================
+export function exportMonthlyReport2PagesPDF(data: MonthlyReportData) {
+  const doc = new jsPDF({
+    orientation: 'landscape',
+    unit: 'mm',
+    format: 'a4',
+  });
+
+  const pageWidth = 297;
+  const pageHeight = 210;
+
+  // -------------------------------------------------------------------------
+  // HOJA 01: MATRIZ COMPLETA DE CASOS DEL MES
+  // -------------------------------------------------------------------------
+  doc.setFillColor(11, 36, 71);
+  doc.rect(0, 0, pageWidth, 20, 'F');
+  doc.setFillColor(6, 182, 212);
+  doc.rect(0, 20, pageWidth, 1.5, 'F');
+
+  doc.setTextColor(255, 255, 255);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(11);
+  doc.text(
+    'MUNICIPALIDAD DISTRITAL DE NUEVO CHIMBOTE - SUBGERENCIA DE SEGURIDAD CIUDADANA',
+    pageWidth / 2,
+    8,
+    { align: 'center' }
+  );
+
+  doc.setFontSize(8.5);
+  doc.setFont('helvetica', 'normal');
+  doc.text(
+    `FICHA OFICIAL DE INCIDENCIAS OPERATIVAS • MES DE ${data.mes} 2026 • PÁGINA 01 DE 02`,
+    pageWidth / 2,
+    14,
+    { align: 'center' }
+  );
+
+  doc.setFillColor(241, 245, 249);
+  doc.roundedRect(8, 23.5, pageWidth - 16, 7.5, 1.5, 1.5, 'F');
+  doc.setFontSize(7);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(15, 23, 42);
+  doc.text(`Periodo Oficial: ${data.rangoFechas}`, 12, 28);
+  doc.text(
+    `Total Atenciones Registradas: ${data.totalMes.toLocaleString()} casos (${data.porcentajeAnual}% del consolidado anual)`,
+    pageWidth - 12,
+    28,
+    { align: 'right' }
+  );
+
+  const tableRows = (data.rows || []).map((r, idx) => {
+    const isViolencia = r.incidencia.includes('VIOLENCIA FAMILIAR');
+    return [
+      idx + 1,
+      r.incidencia,
+      r.total.toLocaleString(),
+      `${r.porcentaje.toFixed(2)}%`,
+      isViolencia ? 'ALTA (CÓDIGO ROJO - LEY 30364)' : 'ORDINARIA',
+    ];
+  });
+
+  const footRows = [
+    [
+      '',
+      `TOTAL DE ATENCIONES REGISTRADAS EN ${data.mes} 2026`,
+      data.totalMes.toLocaleString(),
+      '100.00%',
+      'CUMPLIMIENTO DE META',
+    ],
+  ];
+
+  autoTable(doc, {
+    startY: 33,
+    margin: { left: 8, right: 8 },
+    head: [['N°', 'PRINCIPALES CONFLICTOS MÁS COMUNES', 'CANTIDAD ATENCIONES', '% RELATIVO', 'NIVEL DE PRIORIDAD']],
+    body: tableRows,
+    foot: footRows,
+    theme: 'grid',
+    styles: {
+      fontSize: tableRows.length > 25 ? 6.5 : 7.5,
+      cellPadding: tableRows.length > 25 ? 1.8 : 2.4,
+      font: 'helvetica',
+      textColor: [15, 23, 42],
+    },
+    headStyles: {
+      fillColor: [11, 36, 71],
+      textColor: [255, 255, 255],
+      fontStyle: 'bold',
+      fontSize: 7.5,
+      halign: 'center',
+    },
+    footStyles: {
+      fillColor: [11, 36, 71],
+      textColor: [255, 255, 255],
+      fontStyle: 'bold',
+      fontSize: 8.0,
+      halign: 'center',
+    },
+    columnStyles: {
+      0: { cellWidth: 10, halign: 'center', fontStyle: 'bold' },
+      1: { cellWidth: 140, halign: 'left', fontStyle: 'bold' },
+      2: { cellWidth: 35, halign: 'center', fontStyle: 'bold', fillColor: [248, 250, 252] },
+      3: { cellWidth: 30, halign: 'center', fontStyle: 'bold', fillColor: [248, 250, 252] },
+      4: { cellWidth: 66, halign: 'center' },
+    },
+    didParseCell: (hookData) => {
+      if (hookData.section === 'body' && hookData.column.index === 4) {
+        if (hookData.cell.raw && hookData.cell.raw.toString().includes('ALTA')) {
+          hookData.cell.styles.fillColor = [254, 226, 226];
+          hookData.cell.styles.textColor = [185, 28, 28];
+          hookData.cell.styles.fontStyle = 'bold';
+        }
+      }
+    },
+  });
+
+  doc.setFontSize(7.5);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(11, 36, 71);
+  doc.text('CENTRO DE COMANDO Y CONTROL C2 - MDNCH', 8, pageHeight - 5);
+
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(6.5);
+  doc.setTextColor(100, 116, 139);
+  doc.text('Subgerencia de Seguridad Ciudadana y Serenazgo • Municipalidad Distrital de Nuevo Chimbote', 8, pageHeight - 2);
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(7);
+  doc.setTextColor(11, 36, 71);
+  doc.text('Página 01 de 02', pageWidth - 8, pageHeight - 3.5, { align: 'right' });
+
+  // -------------------------------------------------------------------------
+  // HOJA 02: GRÁFICO DE BARRAS HORIZONTALES AZUL
+  // -------------------------------------------------------------------------
+  doc.addPage('a4', 'landscape');
+
+  doc.setFillColor(11, 36, 71);
+  doc.rect(0, 0, pageWidth, 20, 'F');
+  doc.setFillColor(6, 182, 212);
+  doc.rect(0, 20, pageWidth, 1.5, 'F');
+
+  doc.setTextColor(255, 255, 255);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(11);
+  doc.text(
+    'MUNICIPALIDAD DISTRITAL DE NUEVO CHIMBOTE - SUBGERENCIA DE SEGURIDAD CIUDADANA',
+    pageWidth / 2,
+    8,
+    { align: 'center' }
+  );
+
+  doc.setFontSize(8.5);
+  doc.setFont('helvetica', 'normal');
+  doc.text(
+    `REPORTE ESTADÍSTICO MENSUAL • MES DE ${data.mes} 2026 • PÁGINA 02 DE 02`,
+    pageWidth / 2,
+    14,
+    { align: 'center' }
+  );
+
+  doc.setFontSize(10.5);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(15, 23, 42);
+  doc.text(
+    `EVOLUCIÓN Y DISTRIBUCIÓN DE CONFLICTOS OPERATIVOS • MES DE ${data.mes} 2026`,
+    pageWidth / 2,
+    27,
+    { align: 'center' }
+  );
+
+  doc.setFontSize(7.5);
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(100, 116, 139);
+  doc.text(
+    'Gráfico de barras horizontales en degradado azul tipo cilindro con los principales conflictos registrados (ordenados de mayor a menor)',
+    pageWidth / 2,
+    31.5,
+    { align: 'center' }
+  );
+
+  const chartItems = (data.rows || []).slice(0, 14);
+  const maxVal = chartItems[0]?.total || 10;
+  const xAxisMax = Math.ceil((maxVal * 1.15) / 50) * 50 || 100;
+  const xSteps = 5;
+
+  const plotLeft = 62;
+  const plotRight = 280;
+  const plotWidth = plotRight - plotLeft;
+  const plotTop = 36;
+  const plotBottom = 168;
+  const plotHeight = plotBottom - plotTop;
+
+  doc.setDrawColor(226, 232, 240);
+  doc.setFillColor(248, 250, 252);
+  doc.roundedRect(plotLeft - 54, plotTop - 3, plotWidth + 62, plotHeight + 17, 2, 2, 'FD');
+
+  doc.setFontSize(6.5);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(100, 116, 139);
+
+  for (let s = 0; s <= xSteps; s++) {
+    const val = Math.round((xAxisMax / xSteps) * s);
+    const xPos = plotLeft + (val / xAxisMax) * plotWidth;
+
+    doc.setDrawColor(226, 232, 240);
+    doc.setLineDashPattern(s === 0 ? [] : [1, 1], 0);
+    doc.line(xPos, plotTop, xPos, plotBottom);
+
+    doc.text(val === 0 ? '0' : val.toLocaleString(), xPos, plotBottom + 4.5, { align: 'center' });
+  }
+
+  doc.setDrawColor(148, 163, 184);
+  doc.setLineDashPattern([], 0);
+  doc.line(plotLeft, plotBottom, plotRight, plotBottom);
+  doc.line(plotLeft, plotTop, plotLeft, plotBottom);
+
+  doc.setFontSize(7);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(71, 85, 105);
+  doc.text('Escala: Número de Atenciones Registradas (Casos)', plotLeft + plotWidth / 2, plotBottom + 10, { align: 'center' });
+
+  const numBars = chartItems.length || 1;
+  const rowHeight = plotHeight / numBars;
+  const barHeight = Math.min(6.5, rowHeight * 0.72);
+
+  chartItems.forEach((item, idx) => {
+    const yCenter = plotTop + idx * rowHeight + rowHeight / 2;
+    const barY = yCenter - barHeight / 2;
+    const barWidth = Math.max(2, (item.total / xAxisMax) * plotWidth);
+
+    doc.setFontSize(6.5);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(15, 23, 42);
+    const cleanLabel = item.incidencia.length > 34 ? item.incidencia.slice(0, 33) + '…' : item.incidencia;
+    doc.text(`${idx + 1}. ${cleanLabel}`, plotLeft - 3, yCenter + 1.2, { align: 'right' });
+
+    doc.setFillColor(29, 78, 216);
+    doc.roundedRect(plotLeft, barY, barWidth, barHeight, 1.2, 1.2, 'F');
+
+    doc.setFillColor(56, 189, 248);
+    doc.roundedRect(plotLeft + 0.4, barY + 0.4, Math.max(1, barWidth - 0.8), barHeight * 0.42, 0.8, 0.8, 'F');
+
+    doc.setFillColor(15, 23, 42);
+    doc.rect(plotLeft + 0.4, barY + barHeight - 0.8, Math.max(1, barWidth - 0.8), 0.7, 'F');
+
+    doc.setFontSize(6.5);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(11, 36, 71);
+    doc.text(`${item.total.toLocaleString()} (${item.porcentaje.toFixed(1)}%)`, plotLeft + barWidth + 2, yCenter + 1.2, { align: 'left' });
+  });
+
+  const kpiBoxY = 175;
+  const kpiBoxH = 16;
+  const kpiW = (pageWidth - 24) / 4;
+
+  const top1Name = chartItems[0]?.incidencia || 'N/A';
+  const top1Short = top1Name.length > 20 ? top1Name.slice(0, 19) + '…' : top1Name;
+  const top1Count = chartItems[0]?.total || 0;
+
+  const vfItem = (data.rows || []).find((r) => r.incidencia.includes('VIOLENCIA FAMILIAR'));
+  const vfCount = vfItem?.total || 0;
+
+  const kpis = [
+    { title: 'CONFLICTO PRINCIPAL (#1)', val: `${top1Short}`, sub: `${top1Count.toLocaleString()} casos`, color: [11, 36, 71] },
+    { title: 'VIOLENCIA FAMILIAR (LEY 30364)', val: `${vfCount.toLocaleString()} casos`, sub: 'Prioridad Código Rojo', color: [190, 24, 93] },
+    { title: 'TOTAL ATENCIONES MES', val: `${data.totalMes.toLocaleString()}`, sub: `100% de la ficha mensual`, color: [13, 148, 136] },
+    { title: 'PORCENTAJE ANUAL', val: `${data.porcentajeAnual}%`, sub: 'Del total distrital 2026', color: [30, 64, 175] },
+  ];
+
+  kpis.forEach((kpi, i) => {
+    const kX = 8 + i * (kpiW + 2.5);
+    doc.setFillColor(248, 250, 252);
+    doc.setDrawColor(226, 232, 240);
+    doc.roundedRect(kX, kpiBoxY, kpiW, kpiBoxH, 1.5, 1.5, 'FD');
+
+    doc.setFontSize(5.5);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(100, 116, 139);
+    doc.text(kpi.title, kX + 3, kpiBoxY + 4.5);
+
+    doc.setFontSize(7.5);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(kpi.color[0], kpi.color[1], kpi.color[2]);
+    doc.text(kpi.val, kX + 3, kpiBoxY + 9.5);
+
+    doc.setFontSize(5.5);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(100, 116, 139);
+    doc.text(kpi.sub, kX + 3, kpiBoxY + 13.5);
+  });
+
+  doc.setFontSize(7.5);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(11, 36, 71);
+  doc.text('CENTRO DE COMANDO Y CONTROL C2 - MDNCH', 8, pageHeight - 5);
+
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(6.5);
+  doc.setTextColor(100, 116, 139);
+  doc.text('Subgerencia de Seguridad Ciudadana y Serenazgo • Municipalidad Distrital de Nuevo Chimbote', 8, pageHeight - 2);
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(7);
+  doc.setTextColor(11, 36, 71);
+  doc.text('Página 02 de 02', pageWidth - 8, pageHeight - 3.5, { align: 'right' });
+
+  doc.save(`Ficha_Oficial_${data.mes}_2026_Seguridad_Ciudadana.pdf`);
+}
+
+export function exportMonthlyReportByMonth(
+  records: IncidentRecord[],
+  mes: MesType
+) {
+  const data = getMonthlyReportData(records, records, mes);
+  exportMonthlyReport2PagesPDF(data);
+}
+
+// =========================================================================
 // EXPORTACIÓN PDF RETRATO (PORTRAIT) - COMPATIBILIDAD
 // =========================================================================
 export function exportMonthlyReportPDF(data: MonthlyReportData, chartImgDataUrl?: string) {
-  exportMonthlyReportLandscapePDF(data, chartImgDataUrl);
+  exportMonthlyReport2PagesPDF(data);
 }
 
 // =========================================================================
@@ -673,11 +993,159 @@ export function exportAnnualConsolidatedPDF(data: AnnualConsolidatedData) {
   doc.setFontSize(6.5);
   doc.setTextColor(148, 163, 184);
   doc.text(
-    `Sistema Integrado de Seguridad Ciudadana • Municipalidad Distrital de Nuevo Chimbote • Generado el ${new Date().toLocaleDateString('es-PE')}`,
+    `Sistema Integrado de Seguridad Ciudadana • Municipalidad Distrital de Nuevo Chimbote • Generado el ${new Date().toLocaleDateString('es-PE')} • Página 01 de 02`,
     pageWidth / 2,
     pageHeight - 3,
     { align: 'center' }
   );
+
+  // =========================================================================
+  // PÁGINA 02: EVOLUCIÓN MENSUAL DE INCIDENCIAS OPERATIVAS 2026
+  // =========================================================================
+  doc.addPage('a4', 'landscape');
+
+  // Encabezado Institucional de la Página 2
+  doc.setFillColor(11, 36, 71);
+  doc.rect(0, 0, pageWidth, 20, 'F');
+  doc.setFillColor(6, 182, 212);
+  doc.rect(0, 20, pageWidth, 1.5, 'F');
+
+  doc.setTextColor(255, 255, 255);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(12);
+  doc.text('MUNICIPALIDAD DISTRITAL DE NUEVO CHIMBOTE - SUBGERENCIA DE SEGURIDAD CIUDADANA', pageWidth / 2, 8, { align: 'center' });
+
+  doc.setFontSize(9);
+  doc.setFont('helvetica', 'normal');
+  doc.text('REPORTE ESTADÍSTICO CONSOLIDADO ANUAL 2026 - PÁGINA 02', pageWidth / 2, 14, { align: 'center' });
+
+  // Título de la sección
+  doc.setFontSize(11);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(15, 23, 42);
+  doc.text('EVOLUCIÓN MENSUAL DE INCIDENCIAS OPERATIVAS 2026', pageWidth / 2, 28, { align: 'center' });
+
+  doc.setFontSize(8);
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(100, 116, 139);
+  doc.text(
+    'Distribución de atenciones registradas por mes en orden descendente de volumen operativo (Escala 0 a 6,000 casos)',
+    pageWidth / 2,
+    33,
+    { align: 'center' }
+  );
+
+  // Gráfico de barras horizontales cilíndricas ordenadas de mayor a menor (de Abril 5301 a Febrero 2844)
+  const monthlyEvolution = [
+    { mes: 'ABRIL', total: 5301, pct: '10.94%' },
+    { mes: 'JULIO', total: 4897, pct: '10.11%' },
+    { mes: 'MAYO', total: 4616, pct: '9.53%' },
+    { mes: 'MARZO', total: 4587, pct: '9.47%' },
+    { mes: 'JUNIO', total: 4423, pct: '9.13%' },
+    { mes: 'SETIEMBRE', total: 4229, pct: '8.73%' },
+    { mes: 'AGOSTO', total: 3979, pct: '8.21%' },
+    { mes: 'ENERO', total: 3919, pct: '8.09%' },
+    { mes: 'OCTUBRE', total: 3490, pct: '7.20%' },
+    { mes: 'DICIEMBRE', total: 3204, pct: '6.61%' },
+    { mes: 'NOVIEMBRE', total: 2951, pct: '6.09%' },
+    { mes: 'FEBRERO', total: 2844, pct: '5.87%' },
+  ];
+
+  const plotLeft = 46;
+  const plotRight = 278;
+  const plotWidth = plotRight - plotLeft;
+  const plotTop = 38;
+  const plotBottom = 176;
+  const plotHeight = plotBottom - plotTop;
+  const maxScale = 6000;
+  const tickSteps = [0, 1000, 2000, 3000, 4000, 5000, 6000];
+
+  // Marco del gráfico
+  doc.setDrawColor(226, 232, 240);
+  doc.setFillColor(248, 250, 252);
+  doc.roundedRect(plotLeft - 36, plotTop - 4, plotWidth + 44, plotHeight + 20, 2, 2, 'FD');
+
+  // Líneas de cuadrícula verticales y etiquetas de escala inferior de 0 a 6000 casos
+  doc.setFontSize(6.5);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(100, 116, 139);
+
+  tickSteps.forEach((tick, i) => {
+    const xPos = plotLeft + (tick / maxScale) * plotWidth;
+    doc.setDrawColor(226, 232, 240);
+    doc.setLineDashPattern(i === 0 ? [] : [1, 1], 0);
+    doc.line(xPos, plotTop, xPos, plotBottom);
+
+    doc.text(tick === 0 ? '0' : tick.toLocaleString(), xPos, plotBottom + 5, { align: 'center' });
+  });
+
+  // Eje horizontal continuo
+  doc.setDrawColor(148, 163, 184);
+  doc.setLineDashPattern([], 0);
+  doc.line(plotLeft, plotBottom, plotRight, plotBottom);
+  doc.line(plotLeft, plotTop, plotLeft, plotBottom);
+
+  doc.setFontSize(7);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(71, 85, 105);
+  doc.text('Escala: Número de Atenciones Registradas (Casos)', plotLeft + plotWidth / 2, plotBottom + 11, { align: 'center' });
+
+  // Dibujar barras horizontales tipo cilindro
+  const rowHeight = plotHeight / monthlyEvolution.length;
+  const barHeight = 6.5;
+
+  monthlyEvolution.forEach((item, idx) => {
+    const yCenter = plotTop + idx * rowHeight + rowHeight / 2;
+    const barY = yCenter - barHeight / 2;
+    const barWidth = Math.max(2, (item.total / maxScale) * plotWidth);
+
+    // Etiqueta del mes a la izquierda
+    doc.setFontSize(7);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(15, 23, 42);
+    doc.text(`${idx + 1}. ${item.mes}`, plotLeft - 3, yCenter + 1.5, { align: 'right' });
+
+    // Barra en degradado azul tipo cilindro (base profunda + reflejo de luz superior)
+    doc.setFillColor(29, 78, 216); // Azul real base
+    doc.roundedRect(plotLeft, barY, barWidth, barHeight, 1.2, 1.2, 'F');
+
+    // Reflejo cilíndrico superior
+    doc.setFillColor(56, 189, 248); // Brillo cyan/celeste superior
+    doc.roundedRect(plotLeft + 0.5, barY + 0.5, Math.max(1, barWidth - 1), barHeight * 0.42, 0.8, 0.8, 'F');
+
+    // Sombra inferior del cilindro
+    doc.setFillColor(15, 23, 42);
+    doc.rect(plotLeft + 0.5, barY + barHeight - 1, Math.max(1, barWidth - 1), 0.8, 'F');
+
+    // Valor numérico al final de la barra
+    doc.setFontSize(7);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(11, 36, 71);
+    doc.text(`${item.total.toLocaleString()} casos (${item.pct})`, plotLeft + barWidth + 2.5, yCenter + 1.5, { align: 'left' });
+  });
+
+  // KPI Resumen en pie de página de la Página 2
+  const kpiY = plotBottom + 17;
+  doc.setFontSize(6.5);
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(71, 85, 105);
+  doc.text('Pico Máximo: ABRIL (5,301 atenciones) | Mínimo: FEBRERO (2,844 atenciones) | Promedio Mensual: 4,037 atenciones | Total Anual: 48,440', pageWidth / 2, kpiY, { align: 'center' });
+
+  // Pie institucional del C2 - MDNCH
+  doc.setFontSize(7.5);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(11, 36, 71);
+  doc.text('CENTRO DE COMANDO Y CONTROL C2 - MDNCH', 10, pageHeight - 5);
+
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(6.5);
+  doc.setTextColor(100, 116, 139);
+  doc.text('Subgerencia de Seguridad Ciudadana y Serenazgo • Municipalidad Distrital de Nuevo Chimbote', 10, pageHeight - 2);
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(7);
+  doc.setTextColor(11, 36, 71);
+  doc.text('Página 02 de 02', pageWidth - 10, pageHeight - 3.5, { align: 'right' });
 
   doc.save('Consolidado_General_Anual_2026_Seguridad_Ciudadana.pdf');
 }
